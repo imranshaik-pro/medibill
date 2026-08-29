@@ -1,0 +1,41 @@
+name: MediBill CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+
+  project-validation:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate project structure
+        run: |
+          test -d frontend
+          test -d backend
+          test -d database
+          test -d tests
+          test -d scripts
+          test -d docs
+          test -f docker-compose.yml
+          test -f .gitignore
+          test -f .env.example
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: CI successful
+        run: echo "MediBill CI validation passed!"
