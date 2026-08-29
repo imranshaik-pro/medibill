@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: medibill_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-medibill_db}
+      POSTGRES_USER: ${DB_USER:-medibill_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-medibill_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - medibill_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-medibill_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medibill_backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-medibill_db}
+      DB_USER: ${DB_USER:-medibill_user}
+      DB_PASSWORD: ${DB_PASSWORD:-medibill_password}
+      APP_ENV: ${APP_ENV:-development}
+      APP_PORT: ${APP_PORT:-3000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - medibill_network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: medibill_frontend
+    environment:
+      APP_PORT: ${APP_PORT:-3000}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    networks:
+      - medibill_network
+
+volumes:
+  postgres_data:
+
+networks:
+  medibill_network:
+    driver: bridge
