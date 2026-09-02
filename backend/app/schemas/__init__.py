@@ -12,6 +12,10 @@ from app.schemas.inventory import (
     BatchCreate, BatchUpdate, BatchResponse,
     StockAdjustmentCreate, StockResponse, InventoryTransactionResponse,
 )
+from app.schemas.purchase import (
+    SupplierCreate, SupplierUpdate, SupplierResponse,
+    PurchaseItemCreate, PurchaseInvoiceCreate, PurchaseItemResponse, PurchaseInvoiceResponse,
+)
 
 
 class UserBase(BaseModel):
@@ -54,4 +58,6 @@ __all__ = [
     "ProductCreate", "ProductUpdate", "ProductResponse",
     "BatchCreate", "BatchUpdate", "BatchResponse",
     "StockAdjustmentCreate", "StockResponse", "InventoryTransactionResponse",
+    "SupplierCreate", "SupplierUpdate", "SupplierResponse",
+    "PurchaseItemCreate", "PurchaseInvoiceCreate", "PurchaseItemResponse", "PurchaseInvoiceResponse",
 ]
