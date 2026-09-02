@@ -5,31 +5,21 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
 import Dashboard from '@/pages/Dashboard'
+import MasterData from '@/pages/MasterData'
+import Inventory from '@/pages/Inventory'
+import Purchases from '@/pages/Purchases'
 import NotFound from '@/pages/NotFound'
 
 function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
-  )
+  return <BrowserRouter><AuthProvider><Routes>
+    <Route path="/login" element={<Login />} />
+    <Route path="/register" element={<Register />} />
+    <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+    <Route path="/master-data" element={<ProtectedRoute><MasterData /></ProtectedRoute>} />
+    <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+    <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
+    <Route path="/" element={<Navigate to="/dashboard" replace />} />
+    <Route path="*" element={<NotFound />} />
+  </Routes></AuthProvider></BrowserRouter>
 }
-
 export default App
