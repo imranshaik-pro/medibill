@@ -8,6 +8,10 @@ from app.schemas.master_data import (
     ManufacturerCreate, ManufacturerUpdate, ManufacturerResponse,
     ProductCreate, ProductUpdate, ProductResponse,
 )
+from app.schemas.inventory import (
+    BatchCreate, BatchUpdate, BatchResponse,
+    StockAdjustmentCreate, StockResponse, InventoryTransactionResponse,
+)
 
 
 class UserBase(BaseModel):
@@ -48,4 +52,6 @@ __all__ = [
     "CategoryCreate", "CategoryUpdate", "CategoryResponse",
     "ManufacturerCreate", "ManufacturerUpdate", "ManufacturerResponse",
     "ProductCreate", "ProductUpdate", "ProductResponse",
+    "BatchCreate", "BatchUpdate", "BatchResponse",
+    "StockAdjustmentCreate", "StockResponse", "InventoryTransactionResponse",
 ]
