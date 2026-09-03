@@ -7,6 +7,8 @@ export type MasterDataType = 'customers' | 'categories' | 'manufacturers' | 'pro
 export type Supplier = { id:number; company_id:number; supplier_code:string; supplier_name:string; contact_person?:string; phone?:string; email?:string; address?:string; gstin?:string; credit_days:number; credit_limit?:string; is_active:boolean }
 export type PurchaseItem = { id:number; product_id:number; batch_id:number; quantity:number; mrp:string; purchase_rate:string; discount_percent:string; discount_amount:string; taxable_amount:string; gst_rate:string; cgst:string; sgst:string; igst:string; net_amount:string; batch_number?:string; product_name?:string }
 export type PurchaseInvoice = { id:number; company_id:number; purchase_number:string; purchase_date:string; supplier_id:number; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; round_off:string; grand_total:string; payment_status:string; notes?:string; created_by:number; created_at:string; updated_at:string; supplier_name?:string; items:PurchaseItem[] }
+export type SalesItem = { id:number; product_id:number; batch_id:number; quantity:number; mrp:string; selling_price:string; discount_percent:string; discount_amount:string; taxable_amount:string; gst_rate:string; cgst:string; sgst:string; igst:string; net_amount:string; batch_number?:string; product_name?:string }
+export type SalesInvoice = { id:number; company_id:number; invoice_number:string; invoice_date:string; customer_id:number; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; round_off:string; grand_total:string; payment_status:string; amount_paid:string; balance_due:string; notes?:string; created_by:number; created_at:string; updated_at:string; customer_name?:string; items:SalesItem[] }
 
 class ApiClient {
   private client: AxiosInstance
@@ -31,5 +33,9 @@ class ApiClient {
   async listPurchases(params?:Record<string,unknown>):Promise<PurchaseInvoice[]>{return (await this.client.get('/purchases/invoices',{params})).data}
   async createPurchase(data:Record<string,unknown>):Promise<PurchaseInvoice>{return (await this.client.post('/purchases/invoices',data)).data}
   async getPurchase(id:number):Promise<PurchaseInvoice>{return (await this.client.get(`/purchases/invoices/${id}`)).data}
+  async listSales(params?:Record<string,unknown>):Promise<SalesInvoice[]>{return (await this.client.get('/sales/invoices',{params})).data}
+  async createSale(data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post('/sales/invoices',data)).data}
+  async getSale(id:number):Promise<SalesInvoice>{return (await this.client.get(`/sales/invoices/${id}`)).data}
+  async recordSalePayment(id:number,data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post(`/sales/invoices/${id}/payments`,data)).data}
 }
 export const apiClient = new ApiClient()
