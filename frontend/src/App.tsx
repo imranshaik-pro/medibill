@@ -9,6 +9,7 @@ import MasterData from '@/pages/MasterData'
 import Inventory from '@/pages/Inventory'
 import Purchases from '@/pages/Purchases'
 import Sales from '@/pages/Sales'
+import Receivables from '@/pages/Receivables'
 import NotFound from '@/pages/NotFound'
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
     <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
     <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
     <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
+    <Route path="/receivables" element={<ProtectedRoute><Receivables /></ProtectedRoute>} />
     <Route path="/" element={<Navigate to="/dashboard" replace />} />
     <Route path="*" element={<NotFound />} />
   </Routes></AuthProvider></BrowserRouter>
