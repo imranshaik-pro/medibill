@@ -64,3 +64,5 @@ class PurchaseInvoiceItem(Base):
 
     # Relationships
     invoice = relationship("PurchaseInvoice", back_populates="items")
+    product = relationship("Product")
+    batch = relationship("Batch")
