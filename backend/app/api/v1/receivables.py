@@ -1,7 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user
@@ -28,7 +28,10 @@ def _summary_maps(db: Session, company_id: int):
     invoice_rows = db.query(
         SalesInvoice.customer_id,
         func.coalesce(func.sum(SalesInvoice.grand_total), 0),
-        func.coalesce(func.sum(func.case((SalesInvoice.payment_status != "Paid", 1), else_=0)), 0),
+        func.coalesce(
+            func.sum(case((SalesInvoice.payment_status != "Paid", 1), else_=0)),
+            0,
+        ),
     ).filter(
         SalesInvoice.company_id == company_id,
     ).group_by(SalesInvoice.customer_id).all()
