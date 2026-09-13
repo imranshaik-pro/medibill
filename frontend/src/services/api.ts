@@ -16,6 +16,7 @@ export type FefoBatch = { batch_id:number; product_id:number; batch_number:strin
 export type ExpiryStockRow = { product_id:number; product_code:string; product_name:string; batch_id:number; batch_number:string; expiry_date:string; days_to_expiry:number; expiry_bucket:string; quantity_available:number; purchase_rate:string; mrp:string; purchase_value:string; mrp_value:string }
 export type ExpiryDashboard = { expired_count:number; within_30_count:number; days_31_60_count:number; days_61_90_count:number; days_91_180_count:number; rows:ExpiryStockRow[] }
 export type CustomerCreditProfile = { customer_id:number; customer_name:string; credit_limit:string|null; opening_balance:string; outstanding:string; available_credit:string|null; credit_days:number; drug_license_number?:string; drug_license_expiry_date?:string; licence_status:string }
+export type DashboardSummary = { today_sales:string; monthly_sales:string; total_sales:string; today_purchases:string; monthly_purchases:string; today_collections:string; total_receivables:string; current_stock_units:number; current_stock_value:string; low_stock_items:number; near_expiry_batches:number; expired_batches:number; today_estimated_gross_profit:string }
 
 class ApiClient {
   private client: AxiosInstance
@@ -55,5 +56,6 @@ class ApiClient {
   async getFefoBatches(productId:number, includeExpired=false):Promise<FefoBatch[]>{return (await this.client.get(`/pharma/fefo/${productId}`,{params:{include_expired:includeExpired}})).data}
   async getExpiryDashboard(maxDays=180, includeExpired=true):Promise<ExpiryDashboard>{return (await this.client.get('/pharma/expiry-dashboard',{params:{max_days:maxDays,include_expired:includeExpired}})).data}
   async getCustomerCredit(customerId:number):Promise<CustomerCreditProfile>{return (await this.client.get(`/pharma/customers/${customerId}/credit`)).data}
+  async getDashboardSummary():Promise<DashboardSummary>{return (await this.client.get('/dashboard/summary')).data}
 }
 export const apiClient = new ApiClient()
