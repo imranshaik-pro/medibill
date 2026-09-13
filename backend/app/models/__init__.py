@@ -15,11 +15,13 @@ from app.models.payment import Payment
 from app.models.audit_log import AuditLog
 from app.models.customer_price import CustomerProductPrice, CustomerProductPriceHistory
 from app.models.company_settings import CompanySettings
+from app.models.returns import SalesReturn, SalesReturnItem, PurchaseReturn, PurchaseReturnItem
 
 __all__ = [
     "Company", "User", "Role", "Permission", "UserRole", "Customer", "Product",
     "Supplier", "Manufacturer", "Category", "Batch", "InventoryTransaction",
     "CurrentStock", "SalesInvoice", "SalesInvoiceItem", "PurchaseInvoice",
     "PurchaseInvoiceItem", "Payment", "AuditLog", "CustomerProductPrice",
-    "CustomerProductPriceHistory", "CompanySettings",
+    "CustomerProductPriceHistory", "CompanySettings", "SalesReturn",
+    "SalesReturnItem", "PurchaseReturn", "PurchaseReturnItem",
 ]
