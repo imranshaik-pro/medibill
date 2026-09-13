@@ -1,7 +1,7 @@
 """API v1 module."""
 
 from fastapi import APIRouter
-from app.api.v1 import auth, users, health, master_data, inventory, purchases, sales, receivables, pharma, dashboard
+from app.api.v1 import auth, users, health, master_data, inventory, purchases, sales, receivables, pharma, dashboard, returns
 
 router = APIRouter(prefix="/api/v1")
 
@@ -15,3 +15,4 @@ router.include_router(sales.router, prefix="/sales", tags=["sales"])
 router.include_router(receivables.router, prefix="/receivables", tags=["receivables"])
 router.include_router(pharma.router, prefix="/pharma", tags=["pharma"])
 router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+router.include_router(returns.router, prefix="/returns", tags=["returns"])

@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -43,15 +44,27 @@ class BatchResponse(BaseModel):
         from_attributes = True
 
 
+AdjustmentReason = Literal["DAMAGE", "EXPIRED", "PHYSICAL_SHORTAGE", "PHYSICAL_EXCESS", "SAMPLE", "INTERNAL_USE", "OTHER"]
+
+
 class StockAdjustmentCreate(BaseModel):
     product_id: int
     batch_id: int
     quantity: int = Field(ne=0)
-    transaction_type: str = Field(default="ADJUSTMENT", min_length=1, max_length=50)
+    reason: AdjustmentReason
+    notes: str | None = Field(default=None, max_length=1000)
     unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=2, max_digits=12)
     transaction_date: date | None = None
-    reference_type: str | None = Field(default=None, max_length=50)
-    reference_id: int | None = None
+
+    @model_validator(mode="after")
+    def validate_reason_direction(self):
+        if self.reason in {"DAMAGE", "EXPIRED", "PHYSICAL_SHORTAGE", "SAMPLE", "INTERNAL_USE"} and self.quantity > 0:
+            raise ValueError(f"{self.reason} adjustment must reduce stock")
+        if self.reason == "PHYSICAL_EXCESS" and self.quantity < 0:
+            raise ValueError("PHYSICAL_EXCESS adjustment must increase stock")
+        if self.reason == "OTHER" and not (self.notes or "").strip():
+            raise ValueError("Notes are required when adjustment reason is OTHER")
+        return self
 
 
 class StockResponse(BaseModel):
@@ -77,6 +90,8 @@ class InventoryTransactionResponse(BaseModel):
     transaction_type: str
     reference_type: str | None
     reference_id: int | None
+    reason: str | None = None
+    notes: str | None = None
     quantity: int
     unit_cost: Decimal | None
     transaction_date: date
