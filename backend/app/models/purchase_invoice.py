@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Numeric, Date, Text
 from sqlalchemy.orm import relationship
-from datetime import datetime, date
+from datetime import datetime
 from app.db.base import Base
 
 
@@ -26,22 +26,19 @@ class PurchaseInvoice(Base):
     notes = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
         __import__("sqlalchemy").UniqueConstraint("company_id", "purchase_number", name="uq_company_purchase_number"),
     )
 
-    # Relationships
     company = relationship("Company", back_populates="purchase_invoices")
     supplier = relationship("Supplier", back_populates="purchase_invoices")
     items = relationship("PurchaseInvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
 
 
 class PurchaseInvoiceItem(Base):
-    """Purchase invoice item line."""
+    """Purchase invoice item line with commercial and free/scheme stock separated."""
 
     __tablename__ = "purchase_invoice_items"
 
@@ -50,8 +47,10 @@ class PurchaseInvoiceItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
+    free_quantity = Column(Integer, nullable=False, default=0)
     mrp = Column(Numeric(12, 2), nullable=False)
     purchase_rate = Column(Numeric(12, 2), nullable=False)
+    effective_unit_cost = Column(Numeric(12, 4), nullable=False, default=0)
     discount_percent = Column(Numeric(5, 2), default=0)
     discount_amount = Column(Numeric(12, 2), default=0)
     taxable_amount = Column(Numeric(14, 2), nullable=False)
@@ -62,7 +61,6 @@ class PurchaseInvoiceItem(Base):
     net_amount = Column(Numeric(14, 2), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Relationships
     invoice = relationship("PurchaseInvoice", back_populates="items")
     product = relationship("Product")
     batch = relationship("Batch")
