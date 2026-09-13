@@ -10,6 +10,7 @@ import Inventory from '@/pages/Inventory'
 import Purchases from '@/pages/Purchases'
 import Sales from '@/pages/Sales'
 import Receivables from '@/pages/Receivables'
+import ExpiryManagement from '@/pages/ExpiryManagement'
 import NotFound from '@/pages/NotFound'
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
     <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
     <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
     <Route path="/receivables" element={<ProtectedRoute><Receivables /></ProtectedRoute>} />
+    <Route path="/expiry" element={<ProtectedRoute><ExpiryManagement /></ProtectedRoute>} />
     <Route path="/" element={<Navigate to="/dashboard" replace />} />
     <Route path="*" element={<NotFound />} />
   </Routes></AuthProvider></BrowserRouter>
