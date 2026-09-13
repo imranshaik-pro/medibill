@@ -20,10 +20,15 @@ from app.schemas.purchase import (
 
 router = APIRouter()
 Q = Decimal("0.01")
+Q4 = Decimal("0.0001")
 
 
 def money(value: Decimal) -> Decimal:
-    return value.quantize(Q, rounding=ROUND_HALF_UP)
+    return Decimal(value).quantize(Q, rounding=ROUND_HALF_UP)
+
+
+def cost4(value: Decimal) -> Decimal:
+    return Decimal(value).quantize(Q4, rounding=ROUND_HALF_UP)
 
 
 def supplier_query(db: Session, company_id: int):
@@ -93,9 +98,13 @@ def update_supplier(
 def _invoice_response(invoice: PurchaseInvoice) -> PurchaseInvoiceResponse:
     items = []
     for item in invoice.items:
+        free_qty = item.free_quantity or 0
         items.append(PurchaseItemResponse(
             id=item.id, product_id=item.product_id, batch_id=item.batch_id,
-            quantity=item.quantity, mrp=item.mrp, purchase_rate=item.purchase_rate,
+            quantity=item.quantity, free_quantity=free_qty,
+            total_received_quantity=item.quantity + free_qty,
+            mrp=item.mrp, purchase_rate=item.purchase_rate,
+            effective_unit_cost=item.effective_unit_cost or Decimal("0"),
             discount_percent=item.discount_percent, discount_amount=item.discount_amount,
             taxable_amount=item.taxable_amount, gst_rate=item.gst_rate,
             cgst=item.cgst, sgst=item.sgst, igst=item.igst, net_amount=item.net_amount,
@@ -144,10 +153,10 @@ def create_purchase_invoice(
         created_by=current_user.id,
     )
     db.add(invoice)
-    db.flush()
 
     subtotal = discount_total = taxable_total = cgst_total = sgst_total = igst_total = Decimal("0")
     try:
+        db.flush()
         for item in data.items:
             if item.expiry_date < data.purchase_date:
                 raise HTTPException(status_code=400, detail=f"Expiry date cannot be before purchase date for batch {item.batch_number}")
@@ -180,9 +189,12 @@ def create_purchase_invoice(
                 cgst = money(gst / Decimal("2")); sgst = money(gst - cgst); igst = Decimal("0")
             net = money(taxable + cgst + sgst + igst)
 
+            received_qty = item.quantity + item.free_quantity
+            effective_unit_cost = cost4(taxable / Decimal(received_qty))
             invoice.items.append(PurchaseInvoiceItem(
                 product_id=item.product_id, batch_id=batch.id, quantity=item.quantity,
-                mrp=money(item.mrp), purchase_rate=money(item.purchase_rate),
+                free_quantity=item.free_quantity, mrp=money(item.mrp), purchase_rate=money(item.purchase_rate),
+                effective_unit_cost=effective_unit_cost,
                 discount_percent=item.discount_percent, discount_amount=discount,
                 taxable_amount=taxable, gst_rate=item.gst_rate, cgst=cgst, sgst=sgst,
                 igst=igst, net_amount=net,
@@ -192,18 +204,18 @@ def create_purchase_invoice(
                 CurrentStock.company_id == current_user.company_id,
                 CurrentStock.product_id == item.product_id,
                 CurrentStock.batch_id == batch.id,
-            ).first()
+            ).with_for_update().first()
             if not stock:
                 stock = CurrentStock(company_id=current_user.company_id, product_id=item.product_id, batch_id=batch.id, quantity_on_hand=0, quantity_reserved=0, quantity_available=0)
                 db.add(stock); db.flush()
-            stock.quantity_on_hand = (stock.quantity_on_hand or 0) + item.quantity
+            stock.quantity_on_hand = (stock.quantity_on_hand or 0) + received_qty
             stock.quantity_available = (stock.quantity_on_hand or 0) - (stock.quantity_reserved or 0)
             stock.last_stock_date = datetime.utcnow()
 
             db.add(InventoryTransaction(
                 company_id=current_user.company_id, product_id=item.product_id, batch_id=batch.id,
                 transaction_type="PURCHASE", reference_type="PURCHASE_INVOICE", reference_id=invoice.id,
-                quantity=item.quantity, unit_cost=money(item.purchase_rate), transaction_date=data.purchase_date,
+                quantity=received_qty, unit_cost=effective_unit_cost, transaction_date=data.purchase_date,
                 created_by=current_user.id,
             ))
             subtotal += gross; discount_total += discount; taxable_total += taxable
@@ -214,8 +226,7 @@ def create_purchase_invoice(
         invoice.sgst = money(sgst_total); invoice.igst = money(igst_total)
         invoice.grand_total = money(taxable_total + cgst_total + sgst_total + igst_total)
         invoice.round_off = Decimal("0")
-        db.commit()
-        db.refresh(invoice)
+        db.commit(); db.refresh(invoice)
     except HTTPException:
         db.rollback(); raise
     except IntegrityError:

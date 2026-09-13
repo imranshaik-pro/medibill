@@ -22,6 +22,9 @@ class SalesInvoiceCreate(BaseModel):
     payment_mode: Literal["CASH", "UPI", "CARD", "BANK", "CREDIT"] = "CREDIT"
     amount_paid: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2, max_digits=14)
     payment_reference: str | None = Field(default=None, max_length=100)
+    override_credit_limit: bool = False
+    override_expired_batch: bool = False
+    override_minimum_sale_rate: bool = False
     items: list[SalesItemCreate] = Field(min_length=1)
     notes: str | None = None
 

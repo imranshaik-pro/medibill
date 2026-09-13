@@ -5,7 +5,7 @@ from app.db.base import Base
 
 
 class Product(Base):
-    """Product model."""
+    """Pharmaceutical product/medicine master."""
 
     __tablename__ = "products"
 
@@ -17,12 +17,17 @@ class Product(Base):
     brand_name = Column(String(255))
     manufacturer_id = Column(Integer, ForeignKey("manufacturers.id"))
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    schedule_category = Column(String(50))
+    dosage_form = Column(String(100))
+    strength = Column(String(100))
     hsn_code = Column(String(20))
+    barcode = Column(String(100), index=True)
     gst_rate = Column(Numeric(5, 2), default=0)
     unit = Column(String(50), default="Piece")
     pack_size = Column(Integer, default=1)
     default_mrp = Column(Numeric(12, 2))
     default_selling_price = Column(Numeric(12, 2))
+    minimum_sale_rate = Column(Numeric(12, 2))
     reorder_level = Column(Integer, default=50)
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -34,7 +39,6 @@ class Product(Base):
         __import__("sqlalchemy").UniqueConstraint("company_id", "product_code", name="uq_company_product_code"),
     )
 
-    # Relationships
     company = relationship("Company", back_populates="products")
     category = relationship("Category", back_populates="products")
     manufacturer = relationship("Manufacturer", back_populates="products")

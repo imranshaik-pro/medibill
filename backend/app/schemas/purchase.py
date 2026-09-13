@@ -45,6 +45,7 @@ class PurchaseItemCreate(BaseModel):
     manufacturing_date: date | None = None
     expiry_date: date
     quantity: int = Field(ge=1)
+    free_quantity: int = Field(default=0, ge=0)
     mrp: Decimal = Field(ge=0, decimal_places=2, max_digits=12)
     purchase_rate: Decimal = Field(ge=0, decimal_places=2, max_digits=12)
     discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=2, max_digits=5)
@@ -71,8 +72,11 @@ class PurchaseItemResponse(BaseModel):
     product_id: int
     batch_id: int
     quantity: int
+    free_quantity: int = 0
+    total_received_quantity: int = 0
     mrp: Decimal
     purchase_rate: Decimal
+    effective_unit_cost: Decimal = Decimal("0")
     discount_percent: Decimal
     discount_amount: Decimal
     taxable_amount: Decimal

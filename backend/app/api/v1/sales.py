@@ -22,7 +22,7 @@ Q = Decimal("0.01")
 
 
 def money(value: Decimal) -> Decimal:
-    return Decimal(value).quantize(Q, rounding=ROUND_HALF_UP)
+    return Decimal(value or 0).quantize(Q, rounding=ROUND_HALF_UP)
 
 
 def _payment_totals(db: Session, invoice: SalesInvoice) -> tuple[Decimal, Decimal]:
@@ -30,8 +30,20 @@ def _payment_totals(db: Session, invoice: SalesInvoice) -> tuple[Decimal, Decima
         Payment.company_id == invoice.company_id,
         Payment.sales_invoice_id == invoice.id,
     ).scalar()
-    amount_paid = money(Decimal(paid or 0))
+    amount_paid = money(paid)
     return amount_paid, money(max(Decimal("0"), Decimal(invoice.grand_total) - amount_paid))
+
+
+def _customer_outstanding(db: Session, customer: Customer) -> Decimal:
+    invoice_total = db.query(func.coalesce(func.sum(SalesInvoice.grand_total), 0)).filter(
+        SalesInvoice.company_id == customer.company_id,
+        SalesInvoice.customer_id == customer.id,
+    ).scalar()
+    payment_total = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.company_id == customer.company_id,
+        Payment.customer_id == customer.id,
+    ).scalar()
+    return money(money(customer.opening_balance) + money(invoice_total) - money(payment_total))
 
 
 def _invoice_response(db: Session, invoice: SalesInvoice) -> SalesInvoiceResponse:
@@ -137,6 +149,7 @@ def create_sales_invoice(
     if any(not p.is_active for p in products.values()):
         raise HTTPException(status_code=400, detail="Cannot sell an inactive product")
 
+    current_outstanding = _customer_outstanding(db, customer)
     invoice = SalesInvoice(
         company_id=current_user.company_id,
         invoice_number=data.invoice_number,
@@ -168,10 +181,12 @@ def create_sales_invoice(
                 raise HTTPException(status_code=400, detail=f"Batch {batch.batch_number} does not belong to {product.product_name}")
             if not batch.is_active:
                 raise HTTPException(status_code=400, detail=f"Batch {batch.batch_number} is inactive")
-            if batch.expiry_date < data.invoice_date:
-                raise HTTPException(status_code=400, detail=f"Batch {batch.batch_number} is expired")
+            if batch.expiry_date < data.invoice_date and not data.override_expired_batch:
+                raise HTTPException(status_code=409, detail=f"Batch {batch.batch_number} is expired. Authorized override is required")
             if money(item.selling_price) > money(batch.mrp):
                 raise HTTPException(status_code=400, detail=f"Selling price cannot exceed MRP for batch {batch.batch_number}")
+            if product.minimum_sale_rate is not None and money(item.selling_price) < money(product.minimum_sale_rate) and not data.override_minimum_sale_rate:
+                raise HTTPException(status_code=409, detail=f"Selling price is below the configured minimum sale rate for {product.product_name}")
 
             stock = db.query(CurrentStock).filter(
                 CurrentStock.company_id == current_user.company_id,
@@ -251,6 +266,15 @@ def create_sales_invoice(
         amount_paid = money(data.amount_paid)
         if amount_paid > invoice.grand_total:
             raise HTTPException(status_code=400, detail="Amount paid cannot exceed invoice total")
+
+        projected_outstanding = money(current_outstanding + invoice.grand_total - amount_paid)
+        if customer.credit_limit is not None and projected_outstanding > money(customer.credit_limit) and not data.override_credit_limit:
+            available_credit = money(customer.credit_limit - current_outstanding)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Credit limit exceeded. Current outstanding: {current_outstanding}; available credit: {available_credit}; projected outstanding: {projected_outstanding}",
+            )
+
         if amount_paid > 0:
             db.add(Payment(
                 company_id=current_user.company_id,
@@ -333,7 +357,10 @@ def record_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("manage_inventory")),
 ):
-    invoice = _load_invoice(db, current_user.company_id, invoice_id)
+    invoice = db.query(SalesInvoice).filter(
+        SalesInvoice.id == invoice_id,
+        SalesInvoice.company_id == current_user.company_id,
+    ).with_for_update().first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Sales invoice not found")
     if data.payment_date > date.today():
@@ -357,6 +384,9 @@ def record_payment(
         new_paid = money(amount_paid + data.amount)
         invoice.payment_status = "Paid" if new_paid >= money(invoice.grand_total) else "Partial"
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Payment could not be recorded because of a conflicting record")
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Payment could not be recorded")
