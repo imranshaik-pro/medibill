@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,22 @@ def _conflict(detail: str):
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
 
+def _customer_duplicate(db: Session, company_id: int, *, gstin: str | None = None, drug_license_number: str | None = None, phone: str | None = None, exclude_id: int | None = None):
+    checks = []
+    if gstin:
+        checks.append(Customer.gstin == gstin.strip().upper())
+    if drug_license_number:
+        checks.append(Customer.drug_license_number.ilike(drug_license_number.strip()))
+    if phone:
+        checks.append(Customer.phone == phone.strip())
+    if not checks:
+        return None
+    query = db.query(Customer).filter(Customer.company_id == company_id, or_(*checks))
+    if exclude_id is not None:
+        query = query.filter(Customer.id != exclude_id)
+    return query.first()
+
+
 @router.get("/customers", response_model=list[CustomerResponse])
 def list_customers(
     search: str | None = Query(default=None, max_length=100),
@@ -34,8 +51,16 @@ def list_customers(
     if active_only:
         query = query.filter(Customer.is_active.is_(True))
     if search:
-        pattern = f"%{search}%"
-        query = query.filter((Customer.customer_name.ilike(pattern)) | (Customer.customer_code.ilike(pattern)))
+        pattern = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Customer.customer_name.ilike(pattern),
+            Customer.business_name.ilike(pattern),
+            Customer.customer_code.ilike(pattern),
+            Customer.gstin.ilike(pattern),
+            Customer.drug_license_number.ilike(pattern),
+            Customer.phone.ilike(pattern),
+            Customer.billing_address.ilike(pattern),
+        ))
     return query.order_by(Customer.customer_name).all()
 
 
@@ -45,11 +70,19 @@ def create_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("manage_customers")),
 ):
-    customer = Customer(company_id=current_user.company_id, **data.model_dump())
+    duplicate = _customer_duplicate(
+        db, current_user.company_id,
+        gstin=data.gstin, drug_license_number=data.drug_license_number, phone=data.phone,
+    )
+    if duplicate:
+        raise _conflict(f"Possible existing customer found: {duplicate.customer_name}")
+    values = data.model_dump()
+    if values.get("gstin"):
+        values["gstin"] = values["gstin"].strip().upper()
+    customer = Customer(company_id=current_user.company_id, **values)
     db.add(customer)
     try:
-        db.commit()
-        db.refresh(customer)
+        db.commit(); db.refresh(customer)
     except IntegrityError:
         db.rollback()
         raise _conflict("Customer code already exists for this company")
@@ -72,10 +105,19 @@ def update_customer(
     customer = db.query(Customer).filter(Customer.id == customer_id, Customer.company_id == current_user.company_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    duplicate = _customer_duplicate(
+        db, current_user.company_id,
+        gstin=changes.get("gstin"), drug_license_number=changes.get("drug_license_number"),
+        phone=changes.get("phone"), exclude_id=customer.id,
+    )
+    if duplicate:
+        raise _conflict(f"Possible existing customer found: {duplicate.customer_name}")
+    if changes.get("gstin"):
+        changes["gstin"] = changes["gstin"].strip().upper()
+    for key, value in changes.items():
         setattr(customer, key, value)
-    db.commit()
-    db.refresh(customer)
+    db.commit(); db.refresh(customer)
     return customer
 
 
@@ -88,8 +130,7 @@ def list_categories(db: Session = Depends(get_db), current_user: User = Depends(
 def create_category(data: CategoryCreate, db: Session = Depends(get_db), current_user: User = Depends(require_permission("manage_products"))):
     category = Category(company_id=current_user.company_id, **data.model_dump())
     db.add(category)
-    try:
-        db.commit(); db.refresh(category)
+    try: db.commit(); db.refresh(category)
     except IntegrityError:
         db.rollback(); raise _conflict("Category name already exists for this company")
     return category
@@ -138,8 +179,13 @@ def list_products(
     if active_only: query = query.filter(Product.is_active.is_(True))
     if category_id is not None: query = query.filter(Product.category_id == category_id)
     if search:
-        pattern = f"%{search}%"
-        query = query.filter((Product.product_name.ilike(pattern)) | (Product.product_code.ilike(pattern)) | (Product.generic_name.ilike(pattern)))
+        pattern = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Product.product_name.ilike(pattern), Product.product_code.ilike(pattern),
+            Product.generic_name.ilike(pattern), Product.brand_name.ilike(pattern),
+            Product.barcode.ilike(pattern), Product.hsn_code.ilike(pattern),
+            Product.strength.ilike(pattern),
+        ))
     return query.order_by(Product.product_name).all()
 
 
