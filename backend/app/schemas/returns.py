@@ -33,7 +33,6 @@ class SalesReturnItemResponse(BaseModel):
     igst: Decimal
     net_amount: Decimal
     reason: str | None = None
-
     class Config:
         from_attributes = True
 
@@ -54,7 +53,6 @@ class SalesReturnResponse(BaseModel):
     created_by: int
     created_at: datetime
     items: list[SalesReturnItemResponse] = []
-
     class Config:
         from_attributes = True
 
@@ -80,13 +78,13 @@ class PurchaseReturnItemResponse(BaseModel):
     product_id: int
     batch_id: int
     quantity: int
+    free_quantity: int = 0
     taxable_amount: Decimal
     cgst: Decimal
     sgst: Decimal
     igst: Decimal
     net_amount: Decimal
     reason: str | None = None
-
     class Config:
         from_attributes = True
 
@@ -107,6 +105,5 @@ class PurchaseReturnResponse(BaseModel):
     created_by: int
     created_at: datetime
     items: list[PurchaseReturnItemResponse] = []
-
     class Config:
         from_attributes = True
