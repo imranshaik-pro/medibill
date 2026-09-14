@@ -3,12 +3,15 @@ from typing import List
 from pydantic_settings import BaseSettings
 
 
+DEFAULT_JWT_SECRET = "your-secret-key-change-in-production"
+
+
 class Settings(BaseSettings):
     """Application settings."""
 
     # App
     APP_NAME: str = "MediBill"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "1.0.0"
     APP_ENV: str = os.getenv("APP_ENV", "development")
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
@@ -24,11 +27,9 @@ class Settings(BaseSettings):
     )
 
     # JWT
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", DEFAULT_JWT_SECRET)
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
-        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
-    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
     # CORS
     CORS_ORIGINS: List[str] = [
@@ -50,3 +51,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.APP_ENV.lower() == "production":
+    if settings.JWT_SECRET == DEFAULT_JWT_SECRET or len(settings.JWT_SECRET) < 32:
+        raise RuntimeError("Production JWT_SECRET must be explicitly configured and at least 32 characters long")
+    if settings.DEBUG:
+        raise RuntimeError("DEBUG must be disabled in production")

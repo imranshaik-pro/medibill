@@ -43,3 +43,4 @@ class Customer(Base):
 
     company = relationship("Company", back_populates="customers")
     sales_invoices = relationship("SalesInvoice", back_populates="customer")
+    product_prices = relationship("CustomerProductPrice", back_populates="customer", cascade="all, delete-orphan")

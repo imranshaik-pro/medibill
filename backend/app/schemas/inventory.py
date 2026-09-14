@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, Field, model_validator
+
+Money12 = Annotated[Decimal, Field(ge=0, decimal_places=2, max_digits=12)]
 
 
 class BatchCreate(BaseModel):
@@ -9,8 +11,8 @@ class BatchCreate(BaseModel):
     batch_number: str = Field(min_length=1, max_length=50)
     manufacturing_date: date | None = None
     expiry_date: date
-    mrp: Decimal = Field(ge=0, decimal_places=2, max_digits=12)
-    purchase_rate: Decimal = Field(ge=0, decimal_places=2, max_digits=12)
+    mrp: Money12
+    purchase_rate: Money12
 
     @model_validator(mode="after")
     def validate_dates(self):
@@ -22,8 +24,8 @@ class BatchCreate(BaseModel):
 class BatchUpdate(BaseModel):
     manufacturing_date: date | None = None
     expiry_date: date | None = None
-    mrp: Decimal | None = Field(default=None, ge=0, decimal_places=2, max_digits=12)
-    purchase_rate: Decimal | None = Field(default=None, ge=0, decimal_places=2, max_digits=12)
+    mrp: Money12 | None = None
+    purchase_rate: Money12 | None = None
     is_active: bool | None = None
 
 
@@ -53,7 +55,7 @@ class StockAdjustmentCreate(BaseModel):
     quantity: int = Field(ne=0)
     reason: AdjustmentReason
     notes: str | None = Field(default=None, max_length=1000)
-    unit_cost: Decimal | None = Field(default=None, ge=0, decimal_places=2, max_digits=12)
+    unit_cost: Money12 | None = None
     transaction_date: date | None = None
 
     @model_validator(mode="after")
