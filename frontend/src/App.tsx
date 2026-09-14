@@ -14,6 +14,7 @@ import ExpiryManagement from '@/pages/ExpiryManagement'
 import Returns from '@/pages/Returns'
 import Accounting from '@/pages/Accounting'
 import InvoicePrint from '@/pages/InvoicePrint'
+import InvoiceDocuments from '@/pages/InvoiceDocuments'
 import DocumentSettings from '@/pages/DocumentSettings'
 import NotFound from '@/pages/NotFound'
 
@@ -26,6 +27,7 @@ function App() {
     <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
     <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
     <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
+    <Route path="/documents" element={<ProtectedRoute><InvoiceDocuments /></ProtectedRoute>} />
     <Route path="/sales/:invoiceId/print" element={<ProtectedRoute><InvoicePrint /></ProtectedRoute>} />
     <Route path="/receivables" element={<ProtectedRoute><Receivables /></ProtectedRoute>} />
     <Route path="/expiry" element={<ProtectedRoute><ExpiryManagement /></ProtectedRoute>} />
