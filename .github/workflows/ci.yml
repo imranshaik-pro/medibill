@@ -25,6 +25,8 @@ jobs:
           test -f .env.example
       - name: Validate Docker Compose
         run: docker compose config
+      - name: Build Docker images
+        run: docker compose build backend frontend
 
   backend-postgres-e2e:
     runs-on: ubuntu-latest
