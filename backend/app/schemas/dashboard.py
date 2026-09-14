@@ -11,6 +11,7 @@ class DashboardSummary(BaseModel):
     monthly_purchases: Decimal
     today_collections: Decimal
     total_receivables: Decimal
+    total_payables: Decimal
     current_stock_units: int
     current_stock_value: Decimal
     low_stock_items: int
