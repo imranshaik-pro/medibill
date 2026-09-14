@@ -8,16 +8,16 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY backend/requirements.txt .
+# Build context is ./backend (see docker-compose.yml), so paths are relative to backend/.
+COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
-COPY backend/app ./app
-COPY backend/alembic ./alembic
-COPY backend/alembic.ini .
+# Copy application and migration files
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini .
 
 EXPOSE 8000
 
