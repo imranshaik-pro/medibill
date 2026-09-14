@@ -16,6 +16,7 @@ import Accounting from '@/pages/Accounting'
 import InvoicePrint from '@/pages/InvoicePrint'
 import InvoiceDocuments from '@/pages/InvoiceDocuments'
 import DocumentSettings from '@/pages/DocumentSettings'
+import Reports from '@/pages/Reports'
 import NotFound from '@/pages/NotFound'
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
     <Route path="/returns" element={<ProtectedRoute><Returns /></ProtectedRoute>} />
     <Route path="/accounting" element={<ProtectedRoute><Accounting /></ProtectedRoute>} />
     <Route path="/document-settings" element={<ProtectedRoute><DocumentSettings /></ProtectedRoute>} />
+    <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
     <Route path="/" element={<Navigate to="/dashboard" replace />} />
     <Route path="*" element={<NotFound />} />
   </Routes></AuthProvider></BrowserRouter>

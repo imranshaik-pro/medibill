@@ -9,6 +9,7 @@ class SalesItemCreate(BaseModel):
     product_id: int
     batch_id: int
     quantity: int = Field(ge=1)
+    free_quantity: int = Field(default=0, ge=0)
     selling_price: Decimal = Field(ge=0, decimal_places=2, max_digits=12)
     discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=2, max_digits=5)
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100, decimal_places=2, max_digits=5)
@@ -40,6 +41,8 @@ class SalesItemResponse(BaseModel):
     product_id: int
     batch_id: int
     quantity: int
+    free_quantity: int = 0
+    total_issued_quantity: int = 0
     mrp: Decimal
     selling_price: Decimal
     discount_percent: Decimal
