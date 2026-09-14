@@ -2,26 +2,16 @@ name: MediBill CI
 
 on:
   push:
-    branches:
-      - main
-      - develop
-
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
 
 jobs:
-
   project-validation:
-
     runs-on: ubuntu-latest
-
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Validate project structure
         run: |
           test -d frontend
@@ -33,9 +23,67 @@ jobs:
           test -f docker-compose.yml
           test -f .gitignore
           test -f .env.example
-
       - name: Validate Docker Compose
         run: docker compose config
 
-      - name: CI successful
-        run: echo "MediBill CI validation passed!"
+  backend-postgres-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: medibill_test
+          POSTGRES_USER: medibill_test
+          POSTGRES_PASSWORD: medibill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medibill_test -d medibill_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://medibill_test:medibill_test@localhost:5432/medibill_test
+      JWT_SECRET: ci-only-secret-key-that-is-long-enough-for-tests
+      APP_ENV: test
+      DEBUG: "false"
+      PYTHONPATH: ${{ github.workspace }}/backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Apply Alembic migrations
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Verify Alembic schema is current
+        working-directory: backend
+        run: alembic check
+      - name: Run PostgreSQL E2E tests
+        working-directory: backend
+        run: pytest -q tests/test_postgres_e2e.py
+
+  frontend-production-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Type-check and build frontend
+        working-directory: frontend
+        run: npm run build
