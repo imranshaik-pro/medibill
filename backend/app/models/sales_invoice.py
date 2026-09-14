@@ -26,15 +26,12 @@ class SalesInvoice(Base):
     notes = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
         __import__("sqlalchemy").UniqueConstraint("company_id", "invoice_number", name="uq_company_invoice_number"),
     )
 
-    # Relationships
     company = relationship("Company", back_populates="sales_invoices")
     customer = relationship("Customer", back_populates="sales_invoices")
     items = relationship("SalesInvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
@@ -42,7 +39,7 @@ class SalesInvoice(Base):
 
 
 class SalesInvoiceItem(Base):
-    """Sales invoice item line."""
+    """Sales invoice line. Billed quantity and free/scheme quantity are stored separately."""
 
     __tablename__ = "sales_invoice_items"
 
@@ -51,6 +48,7 @@ class SalesInvoiceItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
+    free_quantity = Column(Integer, nullable=False, default=0)
     mrp = Column(Numeric(12, 2), nullable=False)
     selling_price = Column(Numeric(12, 2), nullable=False)
     discount_percent = Column(Numeric(5, 2), default=0)
@@ -63,5 +61,4 @@ class SalesInvoiceItem(Base):
     net_amount = Column(Numeric(14, 2), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Relationships
     invoice = relationship("SalesInvoice", back_populates="items")
