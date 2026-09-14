@@ -22,6 +22,22 @@ export type SupplierLedger = { supplier_id:number; supplier_code:string; supplie
 export type SupplierPayment = { id:number; company_id:number; supplier_id:number; purchase_invoice_id?:number|null; amount:string; payment_date:string; payment_mode:string; reference_number?:string; notes?:string; created_by:number; created_at:string }
 export type GstSummary = { taxable_sales:string; sales_cgst:string; sales_sgst:string; sales_igst:string; sales_gst_total:string; sales_returns_taxable:string; sales_returns_cgst:string; sales_returns_sgst:string; sales_returns_igst:string; taxable_purchases:string; purchase_cgst:string; purchase_sgst:string; purchase_igst:string; purchase_gst_total:string; purchase_returns_taxable:string; purchase_returns_cgst:string; purchase_returns_sgst:string; purchase_returns_igst:string; net_output_gst:string; net_input_gst:string; estimated_net_gst_payable:string }
 
+export type CompanyDocumentProfile = {
+  company_name:string; legal_name?:string; address?:string; city?:string; state?:string; state_code?:string; pincode?:string; phone?:string; email?:string; gstin?:string;
+  drug_license_20b?:string; drug_license_21b?:string; bank_name?:string; bank_account_number?:string; bank_branch?:string; bank_ifsc?:string;
+  invoice_terms?:string; jurisdiction?:string; authorized_signatory?:string; selected_invoice_template?:string;
+}
+export type InvoiceDocumentLine = {
+  sno:number; product_name:string; hsn_code?:string; pack?:string; manufacturer?:string; batch_number:string; expiry_date:string; quantity:number; free_quantity:number;
+  discount_percent:string; rate:string; mrp:string; gst_rate:string; taxable_amount:string; cgst:string; sgst:string; igst:string; net_amount:string;
+}
+export type InvoiceDocument = {
+  invoice_id:number; invoice_number:string; invoice_date:string; pay_type:string; company:CompanyDocumentProfile;
+  customer_name:string; customer_address?:string; customer_phone?:string; customer_gstin?:string; customer_drug_license?:string; customer_state?:string; customer_state_code?:string;
+  lines:InvoiceDocumentLine[]; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; total_gst:string; round_off:string; grand_total:string;
+  amount_paid:string; balance_due:string; amount_in_words:string; gst_rate_summary:Record<string,string>; notes?:string;
+}
+
 class ApiClient {
   private client: AxiosInstance
   constructor() {
@@ -65,5 +81,8 @@ class ApiClient {
   async getSupplierLedger(supplierId:number):Promise<SupplierLedger>{return (await this.client.get(`/accounting/suppliers/${supplierId}`)).data}
   async createSupplierPayment(data:Record<string,unknown>):Promise<SupplierPayment>{return (await this.client.post('/accounting/supplier-payments',data)).data}
   async getGstSummary(params?:Record<string,unknown>):Promise<GstSummary>{return (await this.client.get('/accounting/gst-summary',{params})).data}
+  async getDocumentSettings():Promise<CompanyDocumentProfile>{return (await this.client.get('/documents/settings')).data}
+  async updateDocumentSettings(data:Record<string,unknown>):Promise<CompanyDocumentProfile>{return (await this.client.put('/documents/settings',data)).data}
+  async getInvoiceDocument(invoiceId:number):Promise<InvoiceDocument>{return (await this.client.get(`/documents/sales-invoices/${invoiceId}`)).data}
 }
 export const apiClient = new ApiClient()
