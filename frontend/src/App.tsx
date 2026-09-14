@@ -13,6 +13,8 @@ import Receivables from '@/pages/Receivables'
 import ExpiryManagement from '@/pages/ExpiryManagement'
 import Returns from '@/pages/Returns'
 import Accounting from '@/pages/Accounting'
+import InvoicePrint from '@/pages/InvoicePrint'
+import DocumentSettings from '@/pages/DocumentSettings'
 import NotFound from '@/pages/NotFound'
 
 function App() {
@@ -24,10 +26,12 @@ function App() {
     <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
     <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
     <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
+    <Route path="/sales/:invoiceId/print" element={<ProtectedRoute><InvoicePrint /></ProtectedRoute>} />
     <Route path="/receivables" element={<ProtectedRoute><Receivables /></ProtectedRoute>} />
     <Route path="/expiry" element={<ProtectedRoute><ExpiryManagement /></ProtectedRoute>} />
     <Route path="/returns" element={<ProtectedRoute><Returns /></ProtectedRoute>} />
     <Route path="/accounting" element={<ProtectedRoute><Accounting /></ProtectedRoute>} />
+    <Route path="/document-settings" element={<ProtectedRoute><DocumentSettings /></ProtectedRoute>} />
     <Route path="/" element={<Navigate to="/dashboard" replace />} />
     <Route path="*" element={<NotFound />} />
   </Routes></AuthProvider></BrowserRouter>
