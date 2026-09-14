@@ -29,10 +29,13 @@ client.interceptors.response.use(
 )
 
 export const inventoryApi = {
-  listBatches: async (productId?: string) =>
+  listBatches: async (productId?: string, activeOnly = true) =>
     (
       await client.get('/inventory/batches', {
-        params: productId ? { product_id: productId } : undefined,
+        params: {
+          ...(productId ? { product_id: productId } : {}),
+          active_only: activeOnly,
+        },
       })
     ).data,
   createBatch: async (data: Record<string, unknown>) =>
