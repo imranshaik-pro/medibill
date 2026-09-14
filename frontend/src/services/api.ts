@@ -17,6 +17,10 @@ export type ExpiryStockRow = { product_id:number; product_code:string; product_n
 export type ExpiryDashboard = { expired_count:number; within_30_count:number; days_31_60_count:number; days_61_90_count:number; days_91_180_count:number; rows:ExpiryStockRow[] }
 export type CustomerCreditProfile = { customer_id:number; customer_name:string; credit_limit:string|null; opening_balance:string; outstanding:string; available_credit:string|null; credit_days:number; drug_license_number?:string; drug_license_expiry_date?:string; licence_status:string }
 export type DashboardSummary = { today_sales:string; monthly_sales:string; total_sales:string; today_purchases:string; monthly_purchases:string; today_collections:string; total_receivables:string; current_stock_units:number; current_stock_value:string; low_stock_items:number; near_expiry_batches:number; expired_batches:number; today_estimated_gross_profit:string }
+export type SupplierLedgerRow = { entry_date:string; entry_type:string; reference:string; debit:string; credit:string; balance:string }
+export type SupplierLedger = { supplier_id:number; supplier_code:string; supplier_name:string; total_purchases:string; total_returns:string; total_payments:string; outstanding:string; rows:SupplierLedgerRow[] }
+export type SupplierPayment = { id:number; company_id:number; supplier_id:number; purchase_invoice_id?:number|null; amount:string; payment_date:string; payment_mode:string; reference_number?:string; notes?:string; created_by:number; created_at:string }
+export type GstSummary = { taxable_sales:string; sales_cgst:string; sales_sgst:string; sales_igst:string; sales_gst_total:string; sales_returns_taxable:string; sales_returns_cgst:string; sales_returns_sgst:string; sales_returns_igst:string; taxable_purchases:string; purchase_cgst:string; purchase_sgst:string; purchase_igst:string; purchase_gst_total:string; purchase_returns_taxable:string; purchase_returns_cgst:string; purchase_returns_sgst:string; purchase_returns_igst:string; net_output_gst:string; net_input_gst:string; estimated_net_gst_payable:string }
 
 class ApiClient {
   private client: AxiosInstance
@@ -57,5 +61,9 @@ class ApiClient {
   async getExpiryDashboard(maxDays=180, includeExpired=true):Promise<ExpiryDashboard>{return (await this.client.get('/pharma/expiry-dashboard',{params:{max_days:maxDays,include_expired:includeExpired}})).data}
   async getCustomerCredit(customerId:number):Promise<CustomerCreditProfile>{return (await this.client.get(`/pharma/customers/${customerId}/credit`)).data}
   async getDashboardSummary():Promise<DashboardSummary>{return (await this.client.get('/dashboard/summary')).data}
+  async listSupplierLedgers(params?:Record<string,unknown>):Promise<SupplierLedger[]>{return (await this.client.get('/accounting/suppliers',{params})).data}
+  async getSupplierLedger(supplierId:number):Promise<SupplierLedger>{return (await this.client.get(`/accounting/suppliers/${supplierId}`)).data}
+  async createSupplierPayment(data:Record<string,unknown>):Promise<SupplierPayment>{return (await this.client.post('/accounting/supplier-payments',data)).data}
+  async getGstSummary(params?:Record<string,unknown>):Promise<GstSummary>{return (await this.client.get('/accounting/gst-summary',{params})).data}
 }
 export const apiClient = new ApiClient()
