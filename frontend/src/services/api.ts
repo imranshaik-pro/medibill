@@ -7,7 +7,7 @@ export type MasterDataType = 'customers' | 'categories' | 'manufacturers' | 'pro
 export type Supplier = { id:number; company_id:number; supplier_code:string; supplier_name:string; contact_person?:string; phone?:string; email?:string; address?:string; gstin?:string; credit_days:number; credit_limit?:string; is_active:boolean }
 export type PurchaseItem = { id:number; product_id:number; batch_id:number; quantity:number; free_quantity:number; total_received_quantity:number; mrp:string; purchase_rate:string; effective_unit_cost:string; discount_percent:string; discount_amount:string; taxable_amount:string; gst_rate:string; cgst:string; sgst:string; igst:string; net_amount:string; batch_number?:string; product_name?:string }
 export type PurchaseInvoice = { id:number; company_id:number; purchase_number:string; purchase_date:string; supplier_id:number; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; round_off:string; grand_total:string; payment_status:string; notes?:string; created_by:number; created_at:string; updated_at:string; supplier_name?:string; items:PurchaseItem[] }
-export type SalesItem = { id:number; product_id:number; batch_id:number; quantity:number; mrp:string; selling_price:string; discount_percent:string; discount_amount:string; taxable_amount:string; gst_rate:string; cgst:string; sgst:string; igst:string; net_amount:string; batch_number?:string; product_name?:string }
+export type SalesItem = { id:number; product_id:number; batch_id:number; quantity:number; free_quantity:number; total_issued_quantity:number; mrp:string; selling_price:string; discount_percent:string; discount_amount:string; taxable_amount:string; gst_rate:string; cgst:string; sgst:string; igst:string; net_amount:string; batch_number?:string; product_name?:string }
 export type SalesInvoice = { id:number; company_id:number; invoice_number:string; invoice_date:string; customer_id:number; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; round_off:string; grand_total:string; payment_status:string; amount_paid:string; balance_due:string; notes?:string; created_by:number; created_at:string; updated_at:string; customer_name?:string; items:SalesItem[] }
 export type ReceivableCustomer = { customer_id:number; customer_code:string; customer_name:string; phone?:string; credit_limit:string; total_invoiced:string; total_paid:string; balance_due:string; open_invoices:number }
 export type ReceivableInvoice = { invoice_id:number; invoice_number:string; invoice_date:string; grand_total:string; amount_paid:string; balance_due:string; payment_status:string }
@@ -21,68 +21,39 @@ export type SupplierLedgerRow = { entry_date:string; entry_type:string; referenc
 export type SupplierLedger = { supplier_id:number; supplier_code:string; supplier_name:string; total_purchases:string; total_returns:string; total_payments:string; outstanding:string; rows:SupplierLedgerRow[] }
 export type SupplierPayment = { id:number; company_id:number; supplier_id:number; purchase_invoice_id?:number|null; amount:string; payment_date:string; payment_mode:string; reference_number?:string; notes?:string; created_by:number; created_at:string }
 export type GstSummary = { taxable_sales:string; sales_cgst:string; sales_sgst:string; sales_igst:string; sales_gst_total:string; sales_returns_taxable:string; sales_returns_cgst:string; sales_returns_sgst:string; sales_returns_igst:string; taxable_purchases:string; purchase_cgst:string; purchase_sgst:string; purchase_igst:string; purchase_gst_total:string; purchase_returns_taxable:string; purchase_returns_cgst:string; purchase_returns_sgst:string; purchase_returns_igst:string; net_output_gst:string; net_input_gst:string; estimated_net_gst_payable:string }
-
-export type CompanyDocumentProfile = {
-  company_name:string; legal_name?:string; address?:string; city?:string; state?:string; state_code?:string; pincode?:string; phone?:string; email?:string; gstin?:string;
-  drug_license_20b?:string; drug_license_21b?:string; bank_name?:string; bank_account_number?:string; bank_branch?:string; bank_ifsc?:string;
-  invoice_terms?:string; jurisdiction?:string; authorized_signatory?:string; selected_invoice_template?:string;
-}
-export type InvoiceDocumentLine = {
-  sno:number; product_name:string; hsn_code?:string; pack?:string; manufacturer?:string; batch_number:string; expiry_date:string; quantity:number; free_quantity:number;
-  discount_percent:string; rate:string; mrp:string; gst_rate:string; taxable_amount:string; cgst:string; sgst:string; igst:string; net_amount:string;
-}
-export type InvoiceDocument = {
-  invoice_id:number; invoice_number:string; invoice_date:string; pay_type:string; company:CompanyDocumentProfile;
-  customer_name:string; customer_address?:string; customer_phone?:string; customer_gstin?:string; customer_drug_license?:string; customer_state?:string; customer_state_code?:string;
-  lines:InvoiceDocumentLine[]; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; total_gst:string; round_off:string; grand_total:string;
-  amount_paid:string; balance_due:string; amount_in_words:string; gst_rate_summary:Record<string,string>; notes?:string;
-}
+export type CompanyDocumentProfile = { company_name:string; legal_name?:string; address?:string; city?:string; state?:string; state_code?:string; pincode?:string; phone?:string; email?:string; gstin?:string; drug_license_20b?:string; drug_license_21b?:string; bank_name?:string; bank_account_number?:string; bank_branch?:string; bank_ifsc?:string; invoice_terms?:string; jurisdiction?:string; authorized_signatory?:string; selected_invoice_template?:string }
+export type InvoiceDocumentLine = { sno:number; product_name:string; hsn_code?:string; pack?:string; manufacturer?:string; batch_number:string; expiry_date:string; quantity:number; free_quantity:number; discount_percent:string; rate:string; mrp:string; gst_rate:string; taxable_amount:string; cgst:string; sgst:string; igst:string; net_amount:string }
+export type InvoiceDocument = { invoice_id:number; invoice_number:string; invoice_date:string; pay_type:string; company:CompanyDocumentProfile; customer_name:string; customer_address?:string; customer_phone?:string; customer_gstin?:string; customer_drug_license?:string; customer_state?:string; customer_state_code?:string; lines:InvoiceDocumentLine[]; subtotal:string; discount_total:string; taxable_total:string; cgst:string; sgst:string; igst:string; total_gst:string; round_off:string; grand_total:string; amount_paid:string; balance_due:string; amount_in_words:string; gst_rate_summary:Record<string,string>; notes?:string }
+export type InventoryIntelligenceRow = { product_id:number; product_code:string; product_name:string; batch_id:number; batch_number:string; expiry_date:string; days_to_expiry:number; quantity_available:number; purchase_rate:string; stock_value:string; reorder_level:number; product_available:number; reorder_suggested:number; units_sold_30d:number; last_sale_date?:string; movement_class:string }
+export type SalesRegisterRow = { invoice_id:number; invoice_date:string; invoice_number:string; customer_name:string; billed_units:number; free_units:number; taxable_total:string; cgst:string; sgst:string; igst:string; gross_invoice:string; returns:string; net_sales:string }
+export type PurchaseRegisterRow = { invoice_id:number; purchase_date:string; purchase_number:string; supplier_name:string; paid_units:number; free_units:number; taxable_total:string; cgst:string; sgst:string; igst:string; gross_purchase:string; returns:string; net_purchase:string }
+export type ProductPerformanceRow = { product_id:number; product_code:string; product_name:string; billed_units:number; free_units:number; net_sales:string }
+export type CustomerPerformanceRow = { customer_id:number; customer_name:string; invoice_count:number; net_sales:string }
 
 class ApiClient {
   private client: AxiosInstance
   constructor() {
     this.client = axios.create({ baseURL: API_BASE_URL, headers: {'Content-Type':'application/json'} })
-    this.client.interceptors.request.use(config => {
-      const token = localStorage.getItem('access_token')
-      if (token) config.headers.Authorization = `Bearer ${token}`
-      else delete config.headers.Authorization
-      return config
-    })
-    this.client.interceptors.response.use(r => r, (error: AxiosError) => {
-      if (error.response?.status === 401) { localStorage.removeItem('access_token'); window.location.href='/login' }
-      return Promise.reject(error)
-    })
+    this.client.interceptors.request.use(config => { const token=localStorage.getItem('access_token'); if(token) config.headers.Authorization=`Bearer ${token}`; else delete config.headers.Authorization; return config })
+    this.client.interceptors.response.use(r=>r,(error:AxiosError)=>{ if(error.response?.status===401){localStorage.removeItem('access_token');window.location.href='/login'} return Promise.reject(error) })
   }
-  setToken(token:string){localStorage.setItem('access_token',token)}
-  clearToken(){localStorage.removeItem('access_token')}
+  setToken(token:string){localStorage.setItem('access_token',token)} clearToken(){localStorage.removeItem('access_token')}
   async register(data:RegisterData){return (await this.client.post('/auth/register',data)).data}
   async login(credentials:LoginCredentials):Promise<AuthResponse>{return (await this.client.post('/auth/login',credentials)).data}
-  async getCurrentUser(){return (await this.client.get('/users/me')).data}
-  async health(){return (await this.client.get('/health')).data}
-  async listMasterData(type:MasterDataType){return (await this.client.get(`/master-data/${type}`)).data}
-  async createMasterData(type:MasterDataType,data:Record<string,unknown>){return (await this.client.post(`/master-data/${type}`,data)).data}
-  async listSuppliers(search?:string, activeOnly=true):Promise<Supplier[]>{return (await this.client.get('/purchases/suppliers',{params:{search,active_only:activeOnly}})).data}
-  async createSupplier(data:Record<string,unknown>):Promise<Supplier>{return (await this.client.post('/purchases/suppliers',data)).data}
-  async updateSupplier(id:number,data:Record<string,unknown>):Promise<Supplier>{return (await this.client.patch(`/purchases/suppliers/${id}`,data)).data}
-  async listPurchases(params?:Record<string,unknown>):Promise<PurchaseInvoice[]>{return (await this.client.get('/purchases/invoices',{params})).data}
-  async createPurchase(data:Record<string,unknown>):Promise<PurchaseInvoice>{return (await this.client.post('/purchases/invoices',data)).data}
-  async getPurchase(id:number):Promise<PurchaseInvoice>{return (await this.client.get(`/purchases/invoices/${id}`)).data}
-  async listSales(params?:Record<string,unknown>):Promise<SalesInvoice[]>{return (await this.client.get('/sales/invoices',{params})).data}
-  async createSale(data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post('/sales/invoices',data)).data}
-  async getSale(id:number):Promise<SalesInvoice>{return (await this.client.get(`/sales/invoices/${id}`)).data}
-  async recordSalePayment(id:number,data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post(`/sales/invoices/${id}/payments`,data)).data}
-  async listReceivables(params?:Record<string,unknown>):Promise<ReceivableCustomer[]>{return (await this.client.get('/receivables/customers',{params})).data}
-  async getCustomerLedger(customerId:number):Promise<CustomerLedger>{return (await this.client.get(`/receivables/customers/${customerId}`)).data}
-  async getFefoBatches(productId:number, includeExpired=false):Promise<FefoBatch[]>{return (await this.client.get(`/pharma/fefo/${productId}`,{params:{include_expired:includeExpired}})).data}
-  async getExpiryDashboard(maxDays=180, includeExpired=true):Promise<ExpiryDashboard>{return (await this.client.get('/pharma/expiry-dashboard',{params:{max_days:maxDays,include_expired:includeExpired}})).data}
-  async getCustomerCredit(customerId:number):Promise<CustomerCreditProfile>{return (await this.client.get(`/pharma/customers/${customerId}/credit`)).data}
+  async getCurrentUser(){return (await this.client.get('/users/me')).data} async health(){return (await this.client.get('/health')).data}
+  async listMasterData(type:MasterDataType){return (await this.client.get(`/master-data/${type}`)).data} async createMasterData(type:MasterDataType,data:Record<string,unknown>){return (await this.client.post(`/master-data/${type}`,data)).data}
+  async listSuppliers(search?:string,activeOnly=true):Promise<Supplier[]>{return (await this.client.get('/purchases/suppliers',{params:{search,active_only:activeOnly}})).data} async createSupplier(data:Record<string,unknown>):Promise<Supplier>{return (await this.client.post('/purchases/suppliers',data)).data} async updateSupplier(id:number,data:Record<string,unknown>):Promise<Supplier>{return (await this.client.patch(`/purchases/suppliers/${id}`,data)).data}
+  async listPurchases(params?:Record<string,unknown>):Promise<PurchaseInvoice[]>{return (await this.client.get('/purchases/invoices',{params})).data} async createPurchase(data:Record<string,unknown>):Promise<PurchaseInvoice>{return (await this.client.post('/purchases/invoices',data)).data} async getPurchase(id:number):Promise<PurchaseInvoice>{return (await this.client.get(`/purchases/invoices/${id}`)).data}
+  async listSales(params?:Record<string,unknown>):Promise<SalesInvoice[]>{return (await this.client.get('/sales/invoices',{params})).data} async createSale(data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post('/sales/invoices',data)).data} async getSale(id:number):Promise<SalesInvoice>{return (await this.client.get(`/sales/invoices/${id}`)).data} async recordSalePayment(id:number,data:Record<string,unknown>):Promise<SalesInvoice>{return (await this.client.post(`/sales/invoices/${id}/payments`,data)).data}
+  async listReceivables(params?:Record<string,unknown>):Promise<ReceivableCustomer[]>{return (await this.client.get('/receivables/customers',{params})).data} async getCustomerLedger(customerId:number):Promise<CustomerLedger>{return (await this.client.get(`/receivables/customers/${customerId}`)).data}
+  async getFefoBatches(productId:number,includeExpired=false):Promise<FefoBatch[]>{return (await this.client.get(`/pharma/fefo/${productId}`,{params:{include_expired:includeExpired}})).data} async getExpiryDashboard(maxDays=180,includeExpired=true):Promise<ExpiryDashboard>{return (await this.client.get('/pharma/expiry-dashboard',{params:{max_days:maxDays,include_expired:includeExpired}})).data} async getCustomerCredit(customerId:number):Promise<CustomerCreditProfile>{return (await this.client.get(`/pharma/customers/${customerId}/credit`)).data}
   async getDashboardSummary():Promise<DashboardSummary>{return (await this.client.get('/dashboard/summary')).data}
-  async listSupplierLedgers(params?:Record<string,unknown>):Promise<SupplierLedger[]>{return (await this.client.get('/accounting/suppliers',{params})).data}
-  async getSupplierLedger(supplierId:number):Promise<SupplierLedger>{return (await this.client.get(`/accounting/suppliers/${supplierId}`)).data}
-  async createSupplierPayment(data:Record<string,unknown>):Promise<SupplierPayment>{return (await this.client.post('/accounting/supplier-payments',data)).data}
-  async getGstSummary(params?:Record<string,unknown>):Promise<GstSummary>{return (await this.client.get('/accounting/gst-summary',{params})).data}
-  async getDocumentSettings():Promise<CompanyDocumentProfile>{return (await this.client.get('/documents/settings')).data}
-  async updateDocumentSettings(data:Record<string,unknown>):Promise<CompanyDocumentProfile>{return (await this.client.put('/documents/settings',data)).data}
-  async getInvoiceDocument(invoiceId:number):Promise<InvoiceDocument>{return (await this.client.get(`/documents/sales-invoices/${invoiceId}`)).data}
+  async listSupplierLedgers(params?:Record<string,unknown>):Promise<SupplierLedger[]>{return (await this.client.get('/accounting/suppliers',{params})).data} async getSupplierLedger(supplierId:number):Promise<SupplierLedger>{return (await this.client.get(`/accounting/suppliers/${supplierId}`)).data} async createSupplierPayment(data:Record<string,unknown>):Promise<SupplierPayment>{return (await this.client.post('/accounting/supplier-payments',data)).data} async getGstSummary(params?:Record<string,unknown>):Promise<GstSummary>{return (await this.client.get('/accounting/gst-summary',{params})).data}
+  async getDocumentSettings():Promise<CompanyDocumentProfile>{return (await this.client.get('/documents/settings')).data} async updateDocumentSettings(data:Record<string,unknown>):Promise<CompanyDocumentProfile>{return (await this.client.put('/documents/settings',data)).data} async getInvoiceDocument(invoiceId:number):Promise<InvoiceDocument>{return (await this.client.get(`/documents/sales-invoices/${invoiceId}`)).data}
+  async getInventoryIntelligence(includeZero=false):Promise<InventoryIntelligenceRow[]>{return (await this.client.get('/reports/inventory-intelligence',{params:{include_zero:includeZero}})).data}
+  async getSalesRegister(params?:Record<string,unknown>):Promise<SalesRegisterRow[]>{return (await this.client.get('/reports/sales-register',{params})).data}
+  async getPurchaseRegister(params?:Record<string,unknown>):Promise<PurchaseRegisterRow[]>{return (await this.client.get('/reports/purchase-register',{params})).data}
+  async getTopProducts(params?:Record<string,unknown>):Promise<ProductPerformanceRow[]>{return (await this.client.get('/reports/top-products',{params})).data}
+  async getTopCustomers(params?:Record<string,unknown>):Promise<CustomerPerformanceRow[]>{return (await this.client.get('/reports/top-customers',{params})).data}
 }
 export const apiClient = new ApiClient()
