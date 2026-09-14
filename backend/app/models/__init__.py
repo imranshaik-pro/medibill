@@ -12,6 +12,7 @@ from app.models.inventory import InventoryTransaction, CurrentStock
 from app.models.sales_invoice import SalesInvoice, SalesInvoiceItem
 from app.models.purchase_invoice import PurchaseInvoice, PurchaseInvoiceItem
 from app.models.payment import Payment
+from app.models.supplier_payment import SupplierPayment
 from app.models.audit_log import AuditLog
 from app.models.customer_price import CustomerProductPrice, CustomerProductPriceHistory
 from app.models.company_settings import CompanySettings
@@ -21,7 +22,7 @@ __all__ = [
     "Company", "User", "Role", "Permission", "UserRole", "Customer", "Product",
     "Supplier", "Manufacturer", "Category", "Batch", "InventoryTransaction",
     "CurrentStock", "SalesInvoice", "SalesInvoiceItem", "PurchaseInvoice",
-    "PurchaseInvoiceItem", "Payment", "AuditLog", "CustomerProductPrice",
+    "PurchaseInvoiceItem", "Payment", "SupplierPayment", "AuditLog", "CustomerProductPrice",
     "CustomerProductPriceHistory", "CompanySettings", "SalesReturn",
     "SalesReturnItem", "PurchaseReturn", "PurchaseReturnItem",
 ]
