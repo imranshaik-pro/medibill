@@ -17,6 +17,7 @@ from app.models.audit_log import AuditLog
 from app.models.customer_price import CustomerProductPrice, CustomerProductPriceHistory
 from app.models.company_settings import CompanySettings
 from app.models.returns import SalesReturn, SalesReturnItem, PurchaseReturn, PurchaseReturnItem
+from app.models.password_reset import PasswordResetToken
 
 __all__ = [
     "Company", "User", "Role", "Permission", "UserRole", "Customer", "Product",
@@ -24,5 +25,5 @@ __all__ = [
     "CurrentStock", "SalesInvoice", "SalesInvoiceItem", "PurchaseInvoice",
     "PurchaseInvoiceItem", "Payment", "SupplierPayment", "AuditLog", "CustomerProductPrice",
     "CustomerProductPriceHistory", "CompanySettings", "SalesReturn",
-    "SalesReturnItem", "PurchaseReturn", "PurchaseReturnItem",
+    "SalesReturnItem", "PurchaseReturn", "PurchaseReturnItem", "PasswordResetToken",
 ]
