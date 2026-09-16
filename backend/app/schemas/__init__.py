@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -25,13 +25,27 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     company_name: str
 
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    reset_token: Optional[str] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UserResponse(UserBase):
@@ -52,6 +66,7 @@ class TokenResponse(BaseModel):
 
 __all__ = [
     "UserBase", "UserCreate", "UserLogin", "UserResponse", "TokenResponse",
+    "ForgotPasswordRequest", "ForgotPasswordResponse", "ResetPasswordRequest",
     "CustomerCreate", "CustomerUpdate", "CustomerResponse",
     "CategoryCreate", "CategoryUpdate", "CategoryResponse",
     "ManufacturerCreate", "ManufacturerUpdate", "ManufacturerResponse",
