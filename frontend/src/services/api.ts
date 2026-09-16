@@ -40,6 +40,8 @@ class ApiClient {
   setToken(token:string){localStorage.setItem('access_token',token)} clearToken(){localStorage.removeItem('access_token')}
   async register(data:RegisterData){return (await this.client.post('/auth/register',data)).data}
   async login(credentials:LoginCredentials):Promise<AuthResponse>{return (await this.client.post('/auth/login',credentials)).data}
+  async forgotPassword(email:string):Promise<{message:string;reset_token?:string}>{return (await this.client.post('/auth/forgot-password',{email})).data}
+  async resetPassword(token:string,newPassword:string):Promise<{message:string}>{return (await this.client.post('/auth/reset-password',{token,new_password:newPassword})).data}
   async getCurrentUser(){return (await this.client.get('/users/me')).data} async health(){return (await this.client.get('/health')).data}
   async listMasterData(type:MasterDataType){return (await this.client.get(`/master-data/${type}`)).data} async createMasterData(type:MasterDataType,data:Record<string,unknown>){return (await this.client.post(`/master-data/${type}`,data)).data}
   async listSuppliers(search?:string,activeOnly=true):Promise<Supplier[]>{return (await this.client.get('/purchases/suppliers',{params:{search,active_only:activeOnly}})).data} async createSupplier(data:Record<string,unknown>):Promise<Supplier>{return (await this.client.post('/purchases/suppliers',data)).data} async updateSupplier(id:number,data:Record<string,unknown>):Promise<Supplier>{return (await this.client.patch(`/purchases/suppliers/${id}`,data)).data}
