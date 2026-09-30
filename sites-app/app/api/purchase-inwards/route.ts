@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import{getChatGPTUser}from"@/app/chatgpt-auth";import{addPurchaseInward}from"@/lib/medibill";
+export async function POST(request:Request){const user=await getChatGPTUser();if(!user)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await addPurchaseInward(user.userId,await request.json()),{status:201})}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Unable to save purchase inward"},{status:400})}}
