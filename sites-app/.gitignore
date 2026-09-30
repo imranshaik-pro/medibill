@@ -30,6 +30,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -46,3 +47,24 @@ next-env.d.ts
 /work/
 /upload/
 /*.tar.gz
+
+# Operational data belongs in encrypted backups, not this public repository.
+/data/d1-full-export.json
+/data/d1-full-import.sql
+/data/r2-object-manifest.json
+/object-storage/
+/product-images/
+/backups/
+/uploads/
+/ocr-temp/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.key
+*.p12
+*.pfx
+/wrangler.toml
+/FILE_MANIFEST.json
+/SHA256SUMS

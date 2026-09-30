@@ -429,6 +429,9 @@ export function MediBillApp({
                 rows={data.productMasters}
                 changed={load}
                 notify={setMsg}
+                allowDelete={["owner", "admin", "super_admin"].includes(
+                  data.member.role,
+                )}
               />
             </List>
           )}{" "}
@@ -440,6 +443,7 @@ export function MediBillApp({
               />
               <InventoryEditor
                 rows={data.products}
+                masters={data.productMasters}
                 changed={load}
                 notify={setMsg}
               />

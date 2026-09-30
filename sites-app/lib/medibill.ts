@@ -2650,6 +2650,56 @@ export async function updateProductMaster(
   return { ...row, ...values };
 }
 
+export async function deleteProductMaster(userId: string, id: string) {
+  const m = await getMembership(userId);
+  if (!m) throw new Error("WORKSPACE_REQUIRED");
+  if (!["owner", "admin", "super_admin"].includes(m.role))
+    throw new Error("PRODUCT_DELETE_FORBIDDEN:Only a firm owner or administrator can delete products");
+  const db = getDb(),
+    [row] = await db
+      .select()
+      .from(productMasters)
+      .where(
+        and(eq(productMasters.id, id), eq(productMasters.tenantId, m.tenantId)),
+      )
+      .limit(1);
+  if (!row) throw new Error("PRODUCT_NOT_FOUND:Product master not found");
+  const [batchLink, inwardLink] = await Promise.all([
+    db
+      .select({ id: products.id })
+      .from(products)
+      .where(
+        and(
+          eq(products.productMasterId, id),
+          eq(products.tenantId, m.tenantId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ id: purchaseInwardItems.id })
+      .from(purchaseInwardItems)
+      .where(
+        and(
+          eq(purchaseInwardItems.productMasterId, id),
+          eq(purchaseInwardItems.tenantId, m.tenantId),
+        ),
+      )
+      .limit(1),
+  ]);
+  if (batchLink.length || inwardLink.length)
+    throw new Error(
+      "PRODUCT_IN_USE:Cannot delete product with existing inventory or invoice history. Keep it in the catalog to preserve stock and audit records.",
+    );
+  await db
+    .delete(productMasters)
+    .where(
+      and(eq(productMasters.id, id), eq(productMasters.tenantId, m.tenantId)),
+    );
+  await audit(m.tenantId, userId, "product_master.deleted", row.name);
+  await backup(m.tenantId);
+  return { deleted: true, id, name: row.name };
+}
+
 export async function updateBatchStock(
   userId: string,
   id: string,

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,6 +35,8 @@ type Batch = {
   purchaseRate: number;
   mrp: number;
   saleRate?: number;
+  productMasterId?: string | null;
+  catalogOnly?: boolean;
 };
 const currency = new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -58,16 +60,43 @@ export function ProductCatalogEditor({
   rows,
   changed,
   notify,
+  allowDelete,
 }: {
   rows: Master[];
   changed: () => void;
   notify: (s: string) => void;
+  allowDelete: boolean;
 }) {
   const h1Warning =
     "Schedule H1 drug: Dispense only on the prescription of a Registered Medical Practitioner. Medical supervision is required.";
   const [selected, setSelected] = useState<Master | null>(null),
     [form, setForm] = useState<Master | null>(null),
+    [deleting, setDeleting] = useState<Master | null>(null),
+    [deletedIds, setDeletedIds] = useState<string[]>([]),
     [busy, setBusy] = useState(false);
+  async function removeProduct() {
+    const target = deleting;
+    if (!target || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/products/${encodeURIComponent(target.id)}`, {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: { accept: "application/json" },
+        }),
+        out = await response.json();
+      if (!response.ok) throw new Error(out.error || "Unable to delete product");
+      setDeletedIds((current) => [...current, target.id]);
+      setDeleting(null);
+      notify("Product deleted successfully");
+      changed();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Delete failed");
+      setDeleting(null);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function save() {
     if (!form) return;
     if (
@@ -116,7 +145,7 @@ export function ProductCatalogEditor({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {rows.filter((r) => !deletedIds.includes(r.id)).map((r) => (
               <tr key={r.id}>
                 <td>
                   <b>{r.name}</b>
@@ -140,6 +169,7 @@ export function ProductCatalogEditor({
                 <td>
                   <div className="row-actions">
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={() => {
@@ -151,6 +181,7 @@ export function ProductCatalogEditor({
                       View
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       onClick={() => {
                         setSelected(r);
@@ -160,6 +191,18 @@ export function ProductCatalogEditor({
                       <Pencil />
                       Edit
                     </Button>
+                    {allowDelete && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="delete-product-button"
+                        onClick={() => setDeleting(r)}
+                      >
+                        <Trash2 />
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -335,23 +378,82 @@ export function ProductCatalogEditor({
           )}
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && !busy && setDeleting(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete product from master?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {deleting?.name}? This removes it
+              from the master catalog. Products with inventory or invoice
+              history cannot be deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="row-actions delete-confirm-actions">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              variant="destructive"
+              onClick={removeProduct}
+            >
+              {busy ? "Deleting…" : "Delete product"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 export function InventoryEditor({
   rows,
+  masters,
   changed,
   notify,
 }: {
   rows: Batch[];
+  masters: Master[];
   changed: () => void;
   notify: (s: string) => void;
 }) {
+  const linkedMasterIds = new Set(
+      rows.map((row) => row.productMasterId).filter(Boolean),
+    ),
+    linkedNames = new Set(rows.map((row) => row.name.trim().toLowerCase())),
+    catalogOnlyRows: Batch[] = masters
+      .filter(
+        (master) =>
+          !linkedMasterIds.has(master.id) &&
+          !linkedNames.has(master.name.trim().toLowerCase()),
+      )
+      .map((master) => ({
+        id: `catalog:${master.id}`,
+        productMasterId: master.id,
+        name: master.name,
+        pack: master.defaultPack || "—",
+        batch: "Not inwarded",
+        stock: 0,
+        expiry: "—",
+        purchaseRate: 0,
+        mrp: 0,
+        saleRate: 0,
+        catalogOnly: true,
+      })),
+    inventoryRows = [...rows, ...catalogOnlyRows];
   const [q, setQ] = useState(""),
     [selected, setSelected] = useState<Batch | null>(null),
     [form, setForm] = useState<(Batch & { reason: string }) | null>(null),
     [busy, setBusy] = useState(false),
-    filtered = rows.filter((r) =>
+    filtered = inventoryRows.filter((r) =>
       (r.name + " " + r.batch).toLowerCase().includes(q.toLowerCase()),
     );
   async function save() {
@@ -421,7 +523,9 @@ export function InventoryEditor({
                     </b>
                   </td>
                   <td>
-                    <div className="row-actions">
+                    {r.catalogOnly ? (
+                      <em className="zero-stock-status">No stock yet</em>
+                    ) : <div className="row-actions">
                       <Button
                         size="sm"
                         variant="outline"
@@ -443,7 +547,7 @@ export function InventoryEditor({
                         <Pencil />
                         Edit Batch
                       </Button>
-                    </div>
+                    </div>}
                   </td>
                 </tr>
               ))}
