@@ -68,3 +68,9 @@ next-env.d.ts
 /wrangler.toml
 /FILE_MANIFEST.json
 /SHA256SUMS
+
+# Private local mobile gateway credentials and certificate
+/.medibill-mobile/
+.dev.vars
+.dev.vars.*
+/wrangler.local.jsonc
