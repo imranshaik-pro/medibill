@@ -3,6 +3,15 @@ type DeleteInput = { confirm_delete?: boolean; reason?: string };
 type Kind = 'sale' | 'purchase';
 type RecordRow = Record<string, any>;
 
+// D1 limits SQL expression depth to 100. Balance conjunctions so complete
+// snapshot guards remain intact without a deeply nested, left-associative tree.
+function andSql(parts: string[]): string {
+  if (!parts.length) return '1';
+  if (parts.length === 1) return parts[0];
+  const middle = Math.floor(parts.length / 2);
+  return `(${andSql(parts.slice(0, middle))} AND ${andSql(parts.slice(middle))})`;
+}
+
 export class InvoiceDeletionError extends Error {
   status: number;
   constructor(message: string, status = 409) { super(message); this.status = status; }
@@ -82,10 +91,10 @@ export async function deleteInvoiceRecord(
   ];
   const guardValues:any[] = [member.id,tenant,tenant,id,partyId,header[amountColumn],header.status,tenant,id,lines.length,tenant,...references];
   // Compare complete snapshots at commit time without one bind per item.
-  const columnMatch=(row:RecordRow,alias:string,json:string)=>Object.keys(row).map(key=>{
+  const columnMatch=(row:RecordRow,alias:string,json:string)=>andSql(Object.keys(row).map(key=>{
     if(!/^[a-z_]+$/.test(key))throw new Error("Unexpected schema column");
     return `${alias}.${key} IS json_extract(${json},'$.${key}')`;
-  }).join(' AND ');
+  }));
   guards.push(`EXISTS(SELECT 1 FROM ${table} h CROSS JOIN (SELECT ? AS value) snapshot WHERE h.tenant_id=? AND h.id=? AND ${columnMatch(header,'h','snapshot.value')})`);
   guardValues.push(JSON.stringify(header),tenant,id);
   guards.push(`NOT EXISTS(SELECT 1 FROM ${lineTable} l WHERE l.tenant_id=? AND l.${parentColumn}=? AND NOT EXISTS(SELECT 1 FROM json_each(?) snapshot WHERE ${columnMatch(lines[0],'l','snapshot.value')}))`);
@@ -113,7 +122,7 @@ export async function deleteInvoiceRecord(
   // audit_logs.id is NOT NULL. A failed guard aborts the entire D1 batch transaction,
   // including concurrent deletes, changed stock lines, payments and permissions.
   const statements = [prepare(
-    `INSERT INTO audit_logs(id,tenant_id,user_id,action,details,created_at) VALUES(CASE WHEN ${guards.join(' AND ')} THEN ? ELSE NULL END,?,?,?,?,?)`,
+    `INSERT INTO audit_logs(id,tenant_id,user_id,action,details,created_at) VALUES(CASE WHEN ${andSql(guards)} THEN ? ELSE NULL END,?,?,?,?,?)`,
     ...guardValues,auditId,tenant,member.id,`${kind}.deleted`,JSON.stringify({reason,header,items:lines,charges}),now,
   )];
   for(const product of batches) {
