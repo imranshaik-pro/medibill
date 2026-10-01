@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,12 +62,16 @@ export function ProductCatalogEditor({
   changed,
   notify,
   allowDelete,
+  initialSearch = "",
 }: {
   rows: Master[];
   changed: () => void;
   notify: (s: string) => void;
   allowDelete: boolean;
+  initialSearch?: string;
 }) {
+  const [q, setQ] = useState(initialSearch);
+  useEffect(() => setQ(initialSearch), [initialSearch]);
   const h1Warning =
     "Schedule H1 drug: Dispense only on the prescription of a Registered Medical Practitioner. Medical supervision is required.";
   const [selected, setSelected] = useState<Master | null>(null),
@@ -130,6 +134,7 @@ export function ProductCatalogEditor({
   }
   return (
     <>
+      <div className="inventory-search"><span>⌕</span><input aria-label="Search Product Master" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search product, composition, manufacturer or HSN"/>{q&&<button type="button" onClick={()=>setQ("")}>Clear</button>}</div>
       <div className="table-scroll product-master-table">
         <table>
           <thead>
@@ -146,7 +151,7 @@ export function ProductCatalogEditor({
             </tr>
           </thead>
           <tbody>
-            {rows.filter((r) => !deletedIds.includes(r.id)).map((r) => (
+            {rows.filter((r) => !deletedIds.includes(r.id) && q.trim().toLowerCase().split(/\s+/).every(token=>[r.name,r.composition,r.manufacturer,r.hsn].join(" ").toLowerCase().includes(token))).map((r) => (
               <tr key={r.id}>
                 <td>
                   <b>{r.name}</b>
@@ -421,12 +426,14 @@ export function InventoryEditor({
   changed,
   notify,
   allowDelete = false,
+  initialSearch = "",
 }: {
   rows: Batch[];
   masters: Master[];
   changed: () => void;
   notify: (s: string) => void;
   allowDelete?: boolean;
+  initialSearch?: string;
 }) {
   const linkedMasterIds = new Set(
       rows.map((row) => row.productMasterId).filter(Boolean),
@@ -454,13 +461,14 @@ export function InventoryEditor({
     inventoryRows = [...rows, ...catalogOnlyRows];
   const [deleting, setDeleting] = useState<Batch | null>(null);
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
-  const [q, setQ] = useState(""),
+  const [q, setQ] = useState(initialSearch),
     [selected, setSelected] = useState<Batch | null>(null),
     [form, setForm] = useState<(Batch & { reason: string }) | null>(null),
     [busy, setBusy] = useState(false),
     filtered = inventoryRows.filter((r) => !deletedIds.includes(r.id)).filter((r) =>
-      (r.name + " " + r.batch).toLowerCase().includes(q.toLowerCase()),
+      q.trim().toLowerCase().split(/\s+/).every(token=>[r.name,r.batch,r.pack].join(" ").toLowerCase().includes(token)),
     );
+  useEffect(() => setQ(initialSearch), [initialSearch]);
   async function save() {
     if (
       !form ||
@@ -489,6 +497,7 @@ export function InventoryEditor({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          aria-label="Search inventory by product, batch or pack"
           placeholder="Search product name or batch number"
         />
       </div>
