@@ -134,7 +134,7 @@ export function SalesInvoiceForm({
   productMasters: Master[];
   prior: Prior[];
   initial?: { header: Record<string, any>; lines: Array<Record<string, any>> };
-  go: (b: Record<string, unknown>) => Promise<{ id: string }>;
+  go: (b: Record<string, unknown>) => Promise<{ id: string } | undefined>;
 }) {
   const now = new Date(),
     h = initial?.header,
@@ -173,6 +173,7 @@ export function SalesInvoiceForm({
         gstRate: Number(x.gstRate),
       })) || [empty()],
     );
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [complianceAlert, setComplianceAlert] = useState<Master | null>(null),
     [acknowledgedProducts, setAcknowledgedProducts] = useState<Set<string>>(
       new Set(
@@ -314,7 +315,19 @@ export function SalesInvoiceForm({
   }, [rows, products, head, customer]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (calc.invalid) return;
+    setSubmitError(null);
+    if (!rows.length) {
+      setSubmitError("Add at least one product row before saving.");
+      return;
+    }
+    if (rows.some((r) => !r.productId || !Number.isFinite(r.quantity) || r.quantity <= 0)) {
+      setSubmitError("Select a product batch and enter a billed quantity greater than zero for every row.");
+      return;
+    }
+    if (calc.invalid) {
+      setSubmitError("Billed and free quantities exceed available stock. Check the highlighted rows.");
+      return;
+    }
     if (
       complianceRequired &&
       (!head.prescriptionDoctorName.trim() ||
@@ -323,6 +336,7 @@ export function SalesInvoiceForm({
       setComplianceAlert(regulatedMasters[0]);
       return;
     }
+    try {
     const out = await go({
       ...head,
       complianceAcknowledged:
@@ -330,10 +344,14 @@ export function SalesInvoiceForm({
         regulatedMasters.every((m) => acknowledgedProducts.has(m.id)),
       items: rows.map(({ productName, ...r }) => r),
     });
-    window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
+    if (out) window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Unable to save invoice. Please try again.");
+    }
   }
   return (
     <form className="sales-engine" onSubmit={submit}>
+      {submitError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{submitError}</p>}
       {complianceAlert && (
         <div className="compliance-alert-backdrop" role="presentation">
           <section
