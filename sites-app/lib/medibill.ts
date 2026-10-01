@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -653,14 +654,8 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
     };
     await db.insert(suppliers).values(supplier);
   }
-  const inwardCount = (
-    await db
-      .select()
-      .from(purchaseInwards)
-      .where(eq(purchaseInwards.tenantId, m.tenantId))
-  ).length;
   const inwardId = crypto.randomUUID(),
-    inwardNo = `PIN-${new Date().getUTCFullYear()}-${String(inwardCount + 1).padStart(4, "0")}`;
+    inwardNo = await nextDocumentNumber(env.DB, m.tenantId, "purchase", `PIN-${new Date().getUTCFullYear()}-`);
   const header = {
     id: inwardId,
     tenantId: m.tenantId,
@@ -1531,14 +1526,8 @@ export async function addInvoice(userId: string, input: SaleInput) {
     net = money2(taxableAfterDiscount + totalTax),
     roundOff = money2(Math.round(net) - net),
     amount = Math.round(net),
-    count = (
-      await db
-        .select()
-        .from(invoices)
-        .where(eq(invoices.tenantId, member.tenantId))
-    ).length,
     id = crypto.randomUUID(),
-    invoiceNo = `INV-${String(new Date().getUTCFullYear()).slice(-2)}-${String(count + 1).padStart(4, "0")}`;
+    invoiceNo = await nextDocumentNumber(env.DB, member.tenantId, "sale", `INV-${String(new Date().getUTCFullYear()).slice(-2)}-`);
   for (const line of lineRows) line.invoiceId = id;
   const row = {
     id,
@@ -3324,4 +3313,11 @@ export async function replacePurchaseInward(
   );
   await backup(m.tenantId);
   return getPurchaseInward(userId, id);
+}
+
+export async function deleteSalesInvoice(userId: string, id: string, input: {confirm_delete?: boolean; reason?: string}) {
+  return deleteInvoiceRecord(env.DB, await getMembership(userId), "sale", id, input, () => createFullBackup(userId, "pre_delete_sale"));
+}
+export async function deletePurchaseInvoice(userId: string, id: string, input: {confirm_delete?: boolean; reason?: string}) {
+  return deleteInvoiceRecord(env.DB, await getMembership(userId), "purchase", id, input, () => createFullBackup(userId, "pre_delete_purchase"));
 }
