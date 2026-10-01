@@ -14,7 +14,7 @@ try {
   New-Item -ItemType Directory $privateDir | Out-Null
   # Restrict certificate and credential files to this Windows account.
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  & icacls.exe $privateDir /inheritance:r /grant:r "${sid}:(OI)(CI)F" | Out-Null
+  & icacls.exe $privateDir /inheritance:r /grant:r "*${sid}:(OI)(CI)F" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Could not restrict credential folder permissions.' }
   [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($plain)) | & node.exe scripts/mobile-gateway.mjs --credentials
   if ($LASTEXITCODE -ne 0) { throw 'Could not create mobile credentials.' }
