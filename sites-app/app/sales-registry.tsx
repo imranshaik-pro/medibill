@@ -1,4 +1,27 @@
 "use client";import{useState}from"react";import{Eye,Pencil,Plus}from"lucide-react";import{Button}from"@/components/ui/button";import{Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle}from"@/components/ui/dialog";import{SalesInvoiceForm}from"@/app/sales-invoice-form";
 type Props={data:any;newInvoice:()=>void;changed:()=>void;notify:(s:string)=>void};const money=(n:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(n);
-export function SalesRegistry({data,newInvoice,changed,notify}:Props){const[id,setId]=useState<string|null>(null),[detail,setDetail]=useState<any>(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);async function edit(invoiceId:string){setId(invoiceId);setLoading(true);const r=await fetch(`/api/invoices/${invoiceId}`),out=await r.json();setLoading(false);if(!r.ok){notify(out.error||"Unable to load invoice");setId(null);return}setDetail(out)}async function update(body:Record<string,unknown>){if(!id)throw new Error("Invoice not selected");if(!confirm("Are you sure you want to update this invoice? Stock balances will be reversed and adjusted."))throw new Error("Update cancelled");setBusy(true);const r=await fetch(`/api/invoices/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),out=await r.json();setBusy(false);if(!r.ok){notify(out.error||"Unable to update invoice");throw new Error(out.error)}notify(`Sales Invoice ${out.header.invoiceNo} updated successfully`);setId(null);setDetail(null);changed();return{id:out.header.id}}
-return <><div className="page-head"><div><h1>Sales & Billing</h1><p>GST-ready multi-item invoices, stock control and payment status.</p></div><Button onClick={newInvoice}><Plus/>New invoice</Button></div><section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>{data.invoices.map((r:any)=><tr key={r.id}><td><b>{r.invoiceNo}</b></td><td>{r.invoiceDate}</td><td>{r.customerName}</td><td>{money(r.amount)}</td><td><em className={r.status==="Paid"?"paid":"pending"}>{r.status}</em></td><td><div className="row-actions"><Button size="sm" variant="outline" asChild><a href={`/invoices/${r.id}/print`} target="_blank"><Eye/>View</a></Button><Button size="sm" onClick={()=>edit(r.id)}><Pencil/>Edit</Button></div></td></tr>)}</tbody></table></div></section><Dialog open={!!id} onOpenChange={o=>!o&&(setId(null),setDetail(null))}><DialogContent className="entry-dialog sales-dialog"><DialogHeader><DialogTitle>Edit Sales Invoice</DialogTitle><DialogDescription>Original stock is restored first; updated billed and free quantities are then validated and deducted.</DialogDescription></DialogHeader>{loading?<div className="detail-loading">Loading invoice…</div>:detail&&<SalesInvoiceForm busy={busy} customers={data.customers} products={data.products} productMasters={data.productMasters} prior={data.invoiceLines} initial={detail} go={update}/>}</DialogContent></Dialog></>}
+export function SalesRegistry({data,newInvoice,changed,notify}:Props){const[id,setId]=useState<string|null>(null),[detail,setDetail]=useState<any>(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);async function edit(invoiceId:string) {
+  setId(invoiceId); setDetail(null); setLoading(true);
+  try {
+    const r=await fetch(`/api/invoices/${invoiceId}`), out=await r.json();
+    if(!r.ok) throw new Error(out.error || "Unable to load invoice");
+    setDetail(out);
+  } catch(error) {
+    notify(error instanceof Error ? error.message : "Unable to load invoice");
+    setId(null);
+  } finally { setLoading(false); }
+}
+async function update(body:Record<string,unknown>) {
+  if(!id) throw new Error("Invoice not selected");
+  if(!confirm("Are you sure you want to update this invoice? Stock balances will be reversed and adjusted.")) return;
+  setBusy(true);
+  try {
+    const r=await fetch(`/api/invoices/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(body)}), out=await r.json();
+    if(!r.ok) throw new Error(out.error || "Unable to update invoice");
+    notify(`Sales Invoice ${out.header.invoiceNo} updated successfully`);
+    setId(null); setDetail(null); changed();
+    return {id:out.header.id};
+  } finally { setBusy(false); }
+}
+
+return <><div className="page-head"><div><h1>Sales & Billing</h1><p>GST-ready multi-item invoices, stock control and payment status.</p></div><Button onClick={newInvoice}><Plus/>New invoice</Button></div><section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>{data.invoices.map((r:any)=><tr key={r.id}><td><b>{r.invoiceNo}</b></td><td>{r.invoiceDate}</td><td>{r.customerName}</td><td>{money(r.amount)}</td><td><em className={r.status==="Paid"?"paid":"pending"}>{r.status}</em></td><td><div className="row-actions"><Button size="sm" variant="outline" asChild><a href={`/invoices/${r.id}/print`} target="_blank"><Eye/>View</a></Button><Button size="sm" onClick={()=>edit(r.id)}><Pencil/>Edit</Button></div></td></tr>)}</tbody></table></div></section><Dialog open={!!id} onOpenChange={o=>!o&&(setId(null),setDetail(null))}><DialogContent className="entry-dialog sales-dialog"><DialogHeader><DialogTitle>Edit Sales Invoice</DialogTitle><DialogDescription>Original stock is restored first; updated billed and free quantities are then validated and deducted.</DialogDescription></DialogHeader>{loading?<div className="detail-loading">Loading invoice…</div>:detail&&<SalesInvoiceForm key={id!} busy={busy} customers={data.customers} products={data.products} productMasters={data.productMasters} prior={data.invoiceLines} initial={detail} go={update}/>}</DialogContent></Dialog></>}
