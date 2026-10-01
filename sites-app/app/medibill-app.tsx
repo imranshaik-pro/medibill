@@ -443,6 +443,7 @@ export function MediBillApp({
                 sub="Physical stock organised by product, pack and batch."
               />
               <InventoryEditor
+                allowDelete={["admin", "super_admin"].includes(data.member.role)}
                 rows={data.products}
                 masters={data.productMasters}
                 changed={load}
