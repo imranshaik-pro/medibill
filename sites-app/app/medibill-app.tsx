@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
   BarChart3,
@@ -223,6 +224,7 @@ type Modal =
   | "payment"
   | "return"
   | null;
+function withSearchMatch<T extends {id:string}>(rows:T[],record?:Record<string,unknown>):T[]{return record&&typeof record.id==="string"&&!rows.some(row=>row.id===record.id)?[record as T,...rows]:rows;}
 const money = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -237,6 +239,7 @@ export function MediBillApp({
 }) {
   const [data, setData] = useState<Data | null | undefined>();
   const [page, setPage] = useState("dashboard");
+  const [searchTarget, setSearchTarget] = useState<{page:string;query:string;record?:Record<string,unknown>}>({page:"",query:""});
   const [modal, setModal] = useState<Modal>(null);
   const [mobile, setMobile] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -244,7 +247,7 @@ export function MediBillApp({
   const load = () =>
     fetch("/api/workspace")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
+      .then(next=>{setData(next);setSearchTarget(current=>({...current,record:undefined}));})
       .catch(() => setMsg("Unable to load your workspace."));
   useEffect(() => {
     load();
@@ -336,6 +339,7 @@ export function MediBillApp({
               key={id}
               className={page === id ? "active" : ""}
               onClick={() => {
+                setSearchTarget({page:"",query:""});
                 setPage(id);
                 setMobile(false);
               }}
@@ -360,10 +364,7 @@ export function MediBillApp({
           <button className="menu" onClick={() => setMobile(!mobile)}>
             <Menu />
           </button>
-          <div className="search">
-            <Search />
-            <input placeholder="Search MediBill…" />
-          </div>
+          <WorkspaceSearch navigate={(nextPage,query,record)=>{setSearchTarget({page:nextPage,query,record});setPage(nextPage);setMobile(false);}}/>
           <div className="profile">
             <div>{initials(user.name)}</div>
             <span>
@@ -384,7 +385,8 @@ export function MediBillApp({
           )}{" "}
           {page === "sales" && (
             <SalesRegistry
-              data={data}
+              initialSearch={searchTarget.page==="sales"?searchTarget.query:""}
+              data={searchTarget.page==="sales"?{...data,invoices:withSearchMatch(data.invoices,searchTarget.record)}:data}
               newInvoice={() => setModal("invoice")}
               changed={load}
               notify={setMsg}
@@ -392,13 +394,14 @@ export function MediBillApp({
           )}{" "}
           {page === "purchases" && (
             <PurchaseHistory
-              rows={data.purchaseInwards || []}
+              initialSearch={searchTarget.page==="purchases"?searchTarget.query:""}
+              rows={withSearchMatch(data.purchaseInwards || [],searchTarget.page==="purchases"?searchTarget.record:undefined)}
               canDelete={["admin", "super_admin"].includes(data.member.role)}
               onImport={() => setModal("purchase")}
               onChanged={load}
             />
           )}{" "}
-          {page === "payables" && <Payables data={data} open={setModal} />}{" "}
+          {page === "payables" && <Payables data={searchTarget.page==="payables" ? {...data,suppliers:withSearchMatch(data.suppliers,searchTarget.record).filter(x=>x.name.toLowerCase().includes(searchTarget.query.toLowerCase()))} : data} open={setModal} />}{" "}
           {page === "returns" && (
             <List
               title="Returns"
@@ -416,7 +419,7 @@ export function MediBillApp({
               action="Add customer"
               click={() => setModal("customer")}
             >
-              <Customers rows={data.customers} />
+              <Customers rows={searchTarget.page==="customers" ? withSearchMatch(data.customers,searchTarget.record).filter(x=>x.name.toLowerCase().includes(searchTarget.query.toLowerCase())) : data.customers} />
             </List>
           )}{" "}
           {page === "catalog" && (
@@ -427,7 +430,8 @@ export function MediBillApp({
               click={() => setModal("product")}
             >
               <ProductCatalogEditor
-                rows={data.productMasters}
+                initialSearch={searchTarget.page==="catalog"?searchTarget.query:""}
+                rows={withSearchMatch(data.productMasters,searchTarget.page==="catalog"?searchTarget.record:undefined)}
                 changed={load}
                 notify={setMsg}
                 allowDelete={["owner", "admin", "super_admin"].includes(
@@ -443,8 +447,9 @@ export function MediBillApp({
                 sub="Physical stock organised by product, pack and batch."
               />
               <InventoryEditor
+                initialSearch={searchTarget.page==="inventory"?searchTarget.query:""}
                 allowDelete={["admin", "super_admin"].includes(data.member.role)}
-                rows={data.products}
+                rows={withSearchMatch(data.products,searchTarget.page==="inventory"?searchTarget.record:undefined)}
                 masters={data.productMasters}
                 changed={load}
                 notify={setMsg}
