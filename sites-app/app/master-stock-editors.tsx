@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { InventoryDeleteDialog } from "./inventory-delete-dialog";
 import { Input } from "@/components/ui/input";
 type Master = {
   id: string;
@@ -419,11 +420,13 @@ export function InventoryEditor({
   masters,
   changed,
   notify,
+  allowDelete = false,
 }: {
   rows: Batch[];
   masters: Master[];
   changed: () => void;
   notify: (s: string) => void;
+  allowDelete?: boolean;
 }) {
   const linkedMasterIds = new Set(
       rows.map((row) => row.productMasterId).filter(Boolean),
@@ -449,11 +452,13 @@ export function InventoryEditor({
         catalogOnly: true,
       })),
     inventoryRows = [...rows, ...catalogOnlyRows];
+  const [deleting, setDeleting] = useState<Batch | null>(null);
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [q, setQ] = useState(""),
     [selected, setSelected] = useState<Batch | null>(null),
     [form, setForm] = useState<(Batch & { reason: string }) | null>(null),
     [busy, setBusy] = useState(false),
-    filtered = inventoryRows.filter((r) =>
+    filtered = inventoryRows.filter((r) => !deletedIds.includes(r.id)).filter((r) =>
       (r.name + " " + r.batch).toLowerCase().includes(q.toLowerCase()),
     );
   async function save() {
@@ -547,6 +552,7 @@ export function InventoryEditor({
                         <Pencil />
                         Edit Batch
                       </Button>
+                      {allowDelete && <Button type="button" size="sm" variant="outline" style={{color:"#b91c1c",borderColor:"#fecaca"}} onClick={() => setDeleting(r)}><Trash2 size={16}/>Delete</Button>}
                     </div>}
                   </td>
                 </tr>
@@ -664,6 +670,7 @@ export function InventoryEditor({
           )}
         </DialogContent>
       </Dialog>
+      {deleting && <InventoryDeleteDialog key={deleting.id} target={deleting} onClose={() => setDeleting(null)} onDeleted={message => {setDeletedIds(current => [...current, deleting.id]);notify(message);changed();}}/>}
     </>
   );
 }
