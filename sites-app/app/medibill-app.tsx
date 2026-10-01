@@ -393,6 +393,7 @@ export function MediBillApp({
           {page === "purchases" && (
             <PurchaseHistory
               rows={data.purchaseInwards || []}
+              canDelete={["admin", "super_admin"].includes(data.member.role)}
               onImport={() => setModal("purchase")}
               onChanged={load}
             />
