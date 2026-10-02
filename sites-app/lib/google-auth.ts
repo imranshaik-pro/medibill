@@ -41,7 +41,9 @@ export class GoogleProviderError extends Error {
   constructor(public status: number, public reason: string) { super("Google provider request failed"); }
 }
 export async function providerJson(url: string, init?: RequestInit) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), redirect: "manual" });
+  // Workers supports manual/follow, not redirect:error. Reject redirects explicitly.
+  if (response.status >= 300 && response.status < 400) throw new GoogleProviderError(response.status, "unexpected_redirect");
   if (!response.ok) {
     const body = await response.json().catch(() => null) as {error?: unknown} | null;
     const allowed = ["invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "invalid_token", "insufficient_scope"];
