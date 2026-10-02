@@ -28,5 +28,38 @@ r=await callback.GET(req());assert.equal(r.status,401);assert.equal(fetchCalls,2
 await DB.prepare("INSERT INTO users VALUES('existing-admin')").run();await DB.prepare('INSERT INTO auth_identity_links VALUES(?,?,?)').bind('123456','existing-admin',Date.now()).run();assert.equal((await auth.sessionUser('medibill_session='+session)).userId,'existing-admin');
 r=await logout.POST(new Request('http://127.0.0.1:5173/api/auth/logout',{method:'POST',headers:{origin:'https://evil.test',cookie:'medibill_session='+session}}));assert.equal(r.status,403);
 r=await logout.POST(new Request('http://127.0.0.1:5173/api/auth/logout',{method:'POST',headers:{origin:'http://127.0.0.1:5173',cookie:'medibill_session='+session}}));assert.equal(r.status,303);assert.equal(await auth.sessionUser('medibill_session='+session),null);
+
+// Exercise the actual Workers fetch implementation, not only Node mocks.
+// This guards against runtime-specific RequestInit incompatibilities.
+const workerAuth = ts.transpileModule(fs.readFileSync(root+'lib/google-auth.ts','utf8').replace('import { env } from "cloudflare:workers";','const env = {};'), {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+let outboundCalls = 0;
+const runtime = new Miniflare({modules:true,compatibilityDate:'2026-05-22',
+  outboundService:async request => {
+    outboundCalls++;
+    const path = new URL(request.url).pathname;
+    if(path === '/redirect') return new Response(null,{status:302,headers:{location:'https://untrusted.invalid/target'}});
+    if(path === '/reject') return Response.json({error:'invalid_client',error_description:'DO_NOT_LOG_SECRET'},{status:401});
+    return Response.json({ok:true});
+  },
+  script: workerAuth + `\nexport default {async fetch(request) {
+    try {
+      const result = await providerJson('https://oauth2.googleapis.com'+new URL(request.url).pathname,
+        {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({test:'dummy'})});
+      return Response.json(result);
+    } catch(error) {
+      return Response.json({reason:error.reason,status:error.status});
+    }
+  }}`
+});
+try {
+  assert.deepEqual(await (await runtime.dispatchFetch('http://localhost/success')).json(),{ok:true});
+  assert.deepEqual(await (await runtime.dispatchFetch('http://localhost/redirect')).json(),{reason:'unexpected_redirect',status:302});
+  assert.equal(outboundCalls,2,'A redirect must never forward the token request');
+  const rejected = await (await runtime.dispatchFetch('http://localhost/reject')).text();
+  assert.equal(rejected.includes('DO_NOT_LOG_SECRET'),false);
+  assert.deepEqual(JSON.parse(rejected),{reason:'invalid_client',status:401});
+} finally {await runtime.dispose();}
+console.log('PASS: actual Workers provider fetch, redirect rejection, and redacted provider errors');
+
 console.log('PASS: Google OAuth state/cookie, PKCE, replay prevention, provider identity, explicit existing-user mapping, session cookies, revocation and logout CSRF on actual D1');
 } finally {await mf.dispose();fs.rmSync(temporary,{recursive:true,force:true});delete globalThis.__authEnv;}
