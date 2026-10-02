@@ -501,8 +501,8 @@ export function InventoryEditor({
           placeholder="Search product name or batch number"
         />
       </div>
-      <section className="panel table-panel">
-        <div className="table-scroll">
+      <section className="panel table-panel inventory-table-panel">
+        <div className="table-scroll inventory-table-scroll" tabIndex={0} role="region" aria-label="Inventory stock table. Scroll horizontally to see all columns.">
           <table>
             <thead>
               <tr>
