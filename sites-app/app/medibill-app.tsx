@@ -359,7 +359,7 @@ export function MediBillApp({
               Manage workspace <ChevronRight size={16} />
             </button>
           </div>
-          <a className="logout" href="/signout-with-chatgpt?return_to=/">
+          <a className="logout" href="/api/auth/logout">
             <LogOut />
             Log out
           </a>
@@ -610,7 +610,7 @@ function PendingApproval({ user }: { user: { name: string; email: string } }) {
         </p>
         <b>{user.email}</b>
         <Button asChild variant="outline">
-          <a href="/signout-with-chatgpt?return_to=/">Sign out</a>
+          <a href="/api/auth/logout">Sign out</a>
         </Button>
       </div>
     </main>
