@@ -527,7 +527,7 @@ export function InventoryEditor({
                   <td>{r.pack}</td>
                   <td>{r.batch}</td>
                   <td>{r.expiry}</td>
-                  <td>{r.stock}</td>
+                  <td><div className="stock-quantity"><strong>{r.stock}</strong><span className={"stock-badge "+(r.stock<=0?"stock-out":r.stock<50?"stock-low":"stock-in")}>{r.stock<=0?"Out of stock":r.stock<50?"Low stock":"In stock"}</span></div></td>
                   <td>{currency.format(r.purchaseRate)}</td>
                   <td>{currency.format(r.mrp)}</td>
                   <td>{currency.format(r.saleRate || 0)}</td>
