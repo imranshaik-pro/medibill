@@ -328,16 +328,17 @@ export function MediBillApp({
     ["admin", "Settings", ShieldCheck],
   ] as const;
   return (
-    <div className="shell">
+    <div className="shell pharmly-shell">
       <aside className={mobile ? "side open" : "side"}>
         <div className="brand">
           <span>M+</span>MediBill <b>Pro</b>
         </div>
-        <nav>
+        <nav aria-label="Main navigation">
           {nav.map(([id, label, Icon]) => (
             <button
               key={id}
               className={page === id ? "active" : ""}
+              aria-current={page === id ? "page" : undefined}
               onClick={() => {
                 setSearchTarget({page:"",query:""});
                 setPage(id);
@@ -349,19 +350,24 @@ export function MediBillApp({
             </button>
           ))}
         </nav>
-        <div className="cloud-card">
-          <ShieldCheck />
-          <b>Cloud protected</b>
-          <p>Data is centralised and backed up after each change.</p>
+        <div className="sidebar-footer">
+          <div className="upgrade-card">
+            <span className="upgrade-icon"><TrendingUp size={20} /></span>
+            <b>Upgrade Pro</b>
+            <p>Bring your pharmacy workflow together in one organised workspace.</p>
+            <button type="button" onClick={() => {setSearchTarget({page:"",query:""});setPage("admin");setMobile(false);}}>
+              Manage workspace <ChevronRight size={16} />
+            </button>
+          </div>
+          <a className="logout" href="/signout-with-chatgpt?return_to=/">
+            <LogOut />
+            Log out
+          </a>
         </div>
-        <a className="logout" href="/signout-with-chatgpt?return_to=/">
-          <LogOut />
-          Log out
-        </a>
       </aside>
       <main className="main">
         <header className="top">
-          <button className="menu" onClick={() => setMobile(!mobile)}>
+          <button className="menu" aria-label="Toggle navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>
             <Menu />
           </button>
           <WorkspaceSearch navigate={(nextPage,query,record)=>{setSearchTarget({page:nextPage,query,record});setPage(nextPage);setMobile(false);}}/>
@@ -423,12 +429,14 @@ export function MediBillApp({
             </List>
           )}{" "}
           {page === "catalog" && (
-            <List
+            <>
+              <Head
               title="Product Master"
               sub="Unique catalog items. HSN and manufacturer are maintained once."
-              action="Add new product"
-              click={() => setModal("product")}
             >
+                <Button onClick={() => setModal("product")}><Plus />Add new product</Button>
+              </Head>
+              <ProductOverview data={data} />
               <ProductCatalogEditor
                 initialSearch={searchTarget.page==="catalog"?searchTarget.query:""}
                 rows={withSearchMatch(data.productMasters,searchTarget.page==="catalog"?searchTarget.record:undefined)}
@@ -438,7 +446,7 @@ export function MediBillApp({
                   data.member.role,
                 )}
               />
-            </List>
+            </>
           )}{" "}
           {page === "inventory" && (
             <>
@@ -446,6 +454,7 @@ export function MediBillApp({
                 title="Inventory & Stock"
                 sub="Physical stock organised by product, pack and batch."
               />
+              <ProductOverview data={data} categories={false} />
               <InventoryEditor
                 initialSearch={searchTarget.page==="inventory"?searchTarget.query:""}
                 allowDelete={["admin", "super_admin"].includes(data.member.role)}
@@ -686,7 +695,7 @@ function Dashboard({
       <div className="section-title">
         <div>
           <h2>Business overview</h2>
-          <p>Live operational numbers from your central cloud records.</p>
+          <p>Operational numbers from your current workspace records.</p>
         </div>
         <span className="live-pill">● LIVE</span>
       </div>
@@ -877,6 +886,49 @@ function Metric({
       <i>{i}</i>
     </div>
   );
+}
+
+function ProductOverview({ data, categories = true }: { data: Data; categories?: boolean }) {
+  const entries = new Map<string, {name: string; category: string; stock: number}>();
+  const names = new Map<string, string>();
+  for (const master of data.productMasters) {
+    entries.set(master.id, {name:master.name, category:master.category?.trim() || "Uncategorised", stock:0});
+    names.set(master.name.trim().toLowerCase(), master.id);
+  }
+  for (const batch of data.products) {
+    const key = batch.productMasterId && entries.has(batch.productMasterId)
+      ? batch.productMasterId : names.get(batch.name.trim().toLowerCase()) || "legacy:" + batch.name.trim().toLowerCase();
+    const entry = entries.get(key) || {name:batch.name, category:"Uncategorised", stock:0};
+    entry.stock += Number(batch.stock) || 0;
+    entries.set(key,entry);
+  }
+  const products = [...entries.values()];
+  const low = products.filter(p => p.stock > 0 && p.stock < 50).length;
+  const out = products.filter(p => p.stock <= 0).length;
+  const categoryCounts = new Map<string,{name:string;total:number;available:number}>();
+  for (const p of products) {
+    const key=p.category.toLowerCase(), item=categoryCounts.get(key) || {name:p.category,total:0,available:0};
+    item.total++; if(p.stock>0)item.available++;
+    categoryCounts.set(key,item);
+  }
+  const groups=[...categoryCounts.values()].sort((a,b)=>b.total-a.total || a.name.localeCompare(b.name));
+  return <section className="product-overview" aria-label="Product and stock summary">
+    <div className="catalog-metrics">
+      <article className="catalog-stat stat-mint"><span className="stat-icon"><Boxes size={22}/></span><div><span>Total products</span><strong>{products.length}</strong><small>Unique products in this workspace view</small></div></article>
+      <article className="catalog-stat stat-amber"><span className="stat-icon"><AlertTriangle size={22}/></span><div><span>Low stock</span><strong>{low}</strong><small>Between 1 and 49 available</small></div></article>
+      <article className="catalog-stat stat-rose"><span className="stat-icon"><PackagePlus size={22}/></span><div><span>Out of stock</span><strong>{out}</strong><small>Ready for stock replenishment</small></div></article>
+    </div>
+    {categories && groups.length>0 && <div className="category-section">
+      <div className="section-title"><div><h2>Product categories</h2><p>Category mix from your saved product master.</p></div><span className="category-summary-note">Current snapshot</span></div>
+      <div className="category-grid">{groups.map((group,i)=><article className={"category-card category-tone-"+(i%4)} key={group.name}>
+        <div className="category-card-head"><span className="category-icon"><PackagePlus size={18}/></span><span>{Math.round(group.total / Math.max(products.length,1)*100)}% of catalog</span></div>
+        <h3>{group.name}</h3><div className="category-card-total"><strong>{group.total}</strong><span>products</span></div>
+        <div className="category-availability"><span>{group.available} in stock</span><span>{group.total-group.available} to replenish</span></div>
+        <div className="category-meter" role="meter" aria-label={group.name+" products in stock"} aria-valuemin={0} aria-valuemax={group.total} aria-valuenow={group.available}><span style={{width:(group.available / group.total*100)+"%"}}/></div>
+      </article>)}</div>
+    </div>}
+    <p className="stock-summary-scope">Based on catalog and batch records currently loaded. Low stock means fewer than 50 available.</p>
+  </section>;
 }
 function Action({
   i,
