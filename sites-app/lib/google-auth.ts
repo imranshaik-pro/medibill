@@ -37,8 +37,16 @@ export async function sessionUser(raw: string | null) {
   const row = await env.DB.prepare("SELECT s.user_id, s.email, s.display_name, l.user_id AS linked_user_id FROM auth_sessions s LEFT JOIN auth_identity_links l ON l.google_subject=s.google_subject WHERE s.token_hash=? AND s.expires_at>?").bind(await hash(token), Date.now()).first<{user_id:string;email:string;display_name:string;linked_user_id:string|null}>();
   return row ? { userId: row.linked_user_id || row.user_id, email: row.email, displayName: row.display_name, fullName: row.display_name } : null;
 }
+export class GoogleProviderError extends Error {
+  constructor(public status: number, public reason: string) { super("Google provider request failed"); }
+}
 export async function providerJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000), redirect: "error" });
-  if (!response.ok) throw new Error("Google authentication failed");
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as {error?: unknown} | null;
+    const allowed = ["invalid_client", "invalid_grant", "unauthorized_client", "access_denied", "invalid_request", "invalid_token", "insufficient_scope"];
+    const reason = typeof body?.error === "string" && allowed.includes(body.error) ? body.error : "provider_rejected";
+    throw new GoogleProviderError(response.status, reason);
+  }
   return response.json() as Promise<Record<string, unknown>>;
 }
