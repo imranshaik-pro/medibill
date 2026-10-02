@@ -38,8 +38,19 @@ export async function GET(request: Request) {
     // Log only fixed stage labels and allowlisted provider codes. Never log the
     // request URL, cookies, authorization code, tokens, credentials, or raw errors.
     const provider = error instanceof GoogleProviderError ? {status: error.status, reason: error.reason} : undefined;
-    console.error("[MediBill Google auth]", JSON.stringify({diagnosticId, stage, provider}));
-    return Response.json({error:"Sign-in could not be verified. Restart Google sign-in.", diagnostic_id:diagnosticId, failure_stage:stage},
+    const errorNames = ["TypeError", "ReferenceError", "SyntaxError", "TimeoutError", "AbortError", "Error"];
+    const errorType = error instanceof Error && errorNames.includes(error.name) ? error.name : "UnknownError";
+    const message = error instanceof Error ? error.message : "";
+    // Convert runtime messages to fixed labels; never output the raw message.
+    const runtimeReason = /AbortSignal.*timeout|timeout.*not a function/i.test(message) ? "timeout_api_unavailable"
+      : /different request|outside.*request|I\/O.*context/i.test(message) ? "request_context"
+      : /certificate|TLS|SSL/i.test(message) ? "tls_failure"
+      : /fetch failed|network|connection/i.test(message) ? "network_failure"
+      : /JSON|Unexpected token/i.test(message) ? "invalid_json_response"
+      : errorType === "TimeoutError" || errorType === "AbortError" ? "request_timeout"
+      : "runtime_failure";
+    console.error("[MediBill Google auth]", JSON.stringify({diagnosticId, stage, provider, errorType, runtimeReason}));
+    return Response.json({error:"Sign-in could not be verified. Restart Google sign-in.", diagnostic_id:diagnosticId, failure_stage:stage, error_type:errorType, failure_reason:provider?.reason || runtimeReason},
       {status:401,headers:{"Cache-Control":"no-store"}});
   }
 }
