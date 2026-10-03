@@ -1,3 +1,4 @@
+import type { DocumentOperation } from "./document-safety";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
@@ -619,7 +620,7 @@ function normalizedInward(input: InwardInput) {
     },
   };
 }
-export async function addPurchaseInward(userId: string, input: InwardInput) {
+export async function addPurchaseInward(userId: string, input: InwardInput, operation?: DocumentOperation) {
   input = normalizedInward(input);
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
@@ -857,7 +858,7 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
           ),
         ),
     );
-  await commitStockBatch(db, m, statements, []);
+  await commitStockBatch(db, m, [...(operation?.receipt(db, header) || []), ...statements], []);
   try {
   await audit(
     m.tenantId,
@@ -1406,7 +1407,7 @@ function words(n: number) {
     }
   return (out + hundred(x)).trim() + " Rupees Only";
 }
-export async function addInvoice(userId: string, input: SaleInput) {
+export async function addInvoice(userId: string, input: SaleInput, operation?: DocumentOperation) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
   if (!input.items?.length) throw new Error("Add at least one product row");
@@ -1580,7 +1581,7 @@ export async function addInvoice(userId: string, input: SaleInput) {
     totalQuantity,
     createdAt: now,
   };
-  await commitStockBatch(db, member, [
+  await commitStockBatch(db, member, [...(operation?.receipt(db, row) || []),
     db.insert(invoices).values(row),
     ...lineRows.map((line) => db.insert(invoiceLines).values(line)),
     ...stockUpdates,
@@ -1669,6 +1670,7 @@ export async function addPurchase(
     status?: string;
     sourceDocumentKey?: string;
   },
+  operation?: DocumentOperation,
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
@@ -1730,15 +1732,12 @@ export async function addPurchase(
     };
     await db.insert(products).values(batchRow);
   }
-  const count = (
-    await db.select().from(purchases).where(eq(purchases.tenantId, m.tenantId))
-  ).length;
   const base = input.quantity * input.unitCost,
     amount = base + (base * input.gstRate) / 100;
   const row = {
     id: crypto.randomUUID(),
     tenantId: m.tenantId,
-    purchaseNo: `PUR-${new Date().getUTCFullYear()}-${String(count + 1).padStart(4, "0")}`,
+    purchaseNo: await nextDocumentNumber(env.DB, m.tenantId, "legacy_purchase", `PUR-${new Date().getUTCFullYear()}-`),
     supplierId: s.id,
     supplierName: s.name,
     productId: batchRow.id,
@@ -1752,7 +1751,7 @@ export async function addPurchase(
     sourceDocumentKey: input.sourceDocumentKey || null,
     createdAt: now,
   };
-  await commitStockBatch(db, m, [
+  await commitStockBatch(db, m, [...(operation?.receipt(db, row) || []),
     db.insert(purchases).values(row),
     db
       .update(products)
@@ -1793,6 +1792,7 @@ export async function addPayment(
     method: string;
     notes?: string;
   },
+  operation?: DocumentOperation,
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
@@ -1821,13 +1821,10 @@ export async function addPayment(
         .limit(1);
   if (!party) throw new Error("Select a valid party");
   if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error("Enter a positive payment amount");
-  const count = (
-    await db.select().from(payments).where(eq(payments.tenantId, m.tenantId))
-  ).length;
   const row = {
     id: crypto.randomUUID(),
     tenantId: m.tenantId,
-    paymentNo: `PAY-${new Date().getUTCFullYear()}-${String(count + 1).padStart(4, "0")}`,
+    paymentNo: await nextDocumentNumber(env.DB, m.tenantId, "payment", `PAY-${new Date().getUTCFullYear()}-`),
     type: input.type,
     partyId: party.id,
     partyName: party.name,
@@ -1842,7 +1839,7 @@ export async function addPayment(
         .where(and(eq(customers.id, party.id), eq(customers.tenantId, m.tenantId)))
     : db.update(suppliers).set({outstanding: balanceDelta(suppliers.outstanding, -input.amount)})
         .where(and(eq(suppliers.id, party.id), eq(suppliers.tenantId, m.tenantId)));
-  await commitStockBatch(db, m, [db.insert(payments).values(row), ledgerUpdate]);
+  await commitStockBatch(db, m, [...(operation?.receipt(db, row) || []),db.insert(payments).values(row), ledgerUpdate]);
   try {
   await audit(m.tenantId, userId, "payment.created", row.paymentNo);
   await backup(m.tenantId);
