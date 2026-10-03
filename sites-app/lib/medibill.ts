@@ -1,3 +1,4 @@
+import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
 import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
@@ -813,8 +814,8 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
       db
         .update(products)
         .set({
-          stock: batchRow.stock + received,
-          physicalStock: batchRow.physicalStock + physicalUnits,
+          stock: stockDelta(products.stock, received),
+          physicalStock: sql`${products.physicalStock} + ${physicalUnits}`,
           packMultiplier: multiplier,
           landingCostPerUnit: landingCost,
           mrpPerUnit,
@@ -848,7 +849,7 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
     statements.push(
       db
         .update(suppliers)
-        .set({ outstanding: supplier.outstanding + header.grandTotal })
+        .set({ outstanding: balanceDelta(suppliers.outstanding, header.grandTotal) })
         .where(
           and(
             eq(suppliers.id, supplier.id),
@@ -856,7 +857,8 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
           ),
         ),
     );
-  await db.batch(statements);
+  await commitStockBatch(db, m, statements, []);
+  try {
   await audit(
     m.tenantId,
     userId,
@@ -864,6 +866,7 @@ export async function addPurchaseInward(userId: string, input: InwardInput) {
     `${inwardNo} · ${input.items.length} items`,
   );
   await backup(m.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return header;
 }
 
@@ -953,6 +956,8 @@ export async function updatePurchaseInward(
       ),
     oldMap = new Map(oldItems.map((x) => [x.id, x])),
     statements = [];
+  if (!Array.isArray(input.items) || input.items.length !== oldItems.length || new Set(input.items.map(x => x.id)).size !== oldItems.length)
+    throw new Error("Include every purchase item exactly once when updating this bill");
   for (const changed of input.items || []) {
     const old = oldMap.get(changed.id);
     if (!old) throw new Error("Invalid purchase item");
@@ -1008,9 +1013,9 @@ export async function updatePurchaseInward(
       db
         .update(products)
         .set({
-          stock: newStock,
+          stock: stockDelta(products.stock, delta),
           physicalStock:
-            batch.physicalStock + delta * (batch.packMultiplier || 1),
+            sql`${products.physicalStock} + ${delta * (batch.packMultiplier || 1)}`,
           expiry: stockExpiry,
           mrp: Number(changed.mrp),
           purchaseRate: rate,
@@ -1082,10 +1087,7 @@ export async function updatePurchaseInward(
         db
           .update(suppliers)
           .set({
-            outstanding: Math.max(
-              0,
-              supplier.outstanding + newPayable - oldPayable,
-            ),
+            outstanding: balanceDelta(suppliers.outstanding, newPayable - oldPayable),
           })
           .where(
             and(
@@ -1140,7 +1142,8 @@ export async function updatePurchaseInward(
         ),
       ),
   );
-  await db.batch(statements);
+  await commitStockBatch(db, member, statements, [snapshotUnchanged(purchaseInwards, and(eq(purchaseInwards.id, id), eq(purchaseInwards.tenantId, member.tenantId))!, [current]), snapshotUnchanged(purchaseInwardItems, and(eq(purchaseInwardItems.inwardId, id), eq(purchaseInwardItems.tenantId, member.tenantId))!, oldItems), snapshotUnchanged(purchaseCharges, and(eq(purchaseCharges.inwardId, id), eq(purchaseCharges.tenantId, member.tenantId))!, charges)]);
+  try {
   await audit(
     member.tenantId,
     userId,
@@ -1148,6 +1151,7 @@ export async function updatePurchaseInward(
     current.inwardNo,
   );
   await backup(member.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return getPurchaseInward(userId, id);
 }
 
@@ -1449,6 +1453,7 @@ export async function addInvoice(userId: string, input: SaleInput) {
     const qty = Math.max(0, Number(item.quantity) || 0),
       free = Math.max(0, Number(item.freeQuantity) || 0),
       used = qty + free;
+    if (!Number.isSafeInteger(qty) || !Number.isSafeInteger(free)) throw new Error("Stock quantities must be whole units");
     if (qty <= 0) throw new Error(`Enter billed quantity in row ${i + 1}`);
     if (used > p.stock)
       throw new Error(
@@ -1491,10 +1496,11 @@ export async function addInvoice(userId: string, input: SaleInput) {
       lineTotal: money2(taxable + gstAmount),
       createdAt: now,
     });
+    productMap.set(p.id, { ...p, stock: p.stock - used });
     stockUpdates.push(
       db
         .update(products)
-        .set({ stock: p.stock - used })
+        .set({ stock: stockDelta(products.stock, -used), physicalStock: sql`MAX(0, ${products.physicalStock} - ${used * (p.packMultiplier || 1)})` })
         .where(
           and(eq(products.id, p.id), eq(products.tenantId, member.tenantId)),
         ),
@@ -1574,7 +1580,7 @@ export async function addInvoice(userId: string, input: SaleInput) {
     totalQuantity,
     createdAt: now,
   };
-  await db.batch([
+  await commitStockBatch(db, member, [
     db.insert(invoices).values(row),
     ...lineRows.map((line) => db.insert(invoiceLines).values(line)),
     ...stockUpdates,
@@ -1582,7 +1588,7 @@ export async function addInvoice(userId: string, input: SaleInput) {
       ? [
           db
             .update(customers)
-            .set({ outstanding: customer.outstanding + amount })
+            .set({ outstanding: balanceDelta(customers.outstanding, amount) })
             .where(
               and(
                 eq(customers.id, customer.id),
@@ -1591,7 +1597,8 @@ export async function addInvoice(userId: string, input: SaleInput) {
             ),
         ]
       : []),
-  ]);
+  ], []);
+  try {
   await audit(
     member.tenantId,
     userId,
@@ -1599,6 +1606,7 @@ export async function addInvoice(userId: string, input: SaleInput) {
     `${invoiceNo} · ${lineRows.length} items`,
   );
   await backup(member.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return row;
 }
 
@@ -1744,12 +1752,13 @@ export async function addPurchase(
     sourceDocumentKey: input.sourceDocumentKey || null,
     createdAt: now,
   };
-  await db.batch([
+  await commitStockBatch(db, m, [
     db.insert(purchases).values(row),
     db
       .update(products)
       .set({
-        stock: batchRow.stock + input.quantity,
+        stock: stockDelta(products.stock, input.quantity),
+        physicalStock: sql`${products.physicalStock} + ${input.quantity * (batchRow.packMultiplier || 1)}`,
         purchaseRate: input.unitCost,
         mrp: input.mrp,
         expiry: input.expiry,
@@ -1761,15 +1770,17 @@ export async function addPurchase(
       ? [
           db
             .update(suppliers)
-            .set({ outstanding: s.outstanding + amount })
+            .set({ outstanding: balanceDelta(suppliers.outstanding, amount) })
             .where(
               and(eq(suppliers.id, s.id), eq(suppliers.tenantId, m.tenantId)),
             ),
         ]
       : []),
-  ]);
+  ], []);
+  try {
   await audit(m.tenantId, userId, "purchase.created", row.purchaseNo);
   await backup(m.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return row;
 }
 
@@ -1809,6 +1820,7 @@ export async function addPayment(
         )
         .limit(1);
   if (!party) throw new Error("Select a valid party");
+  if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error("Enter a positive payment amount");
   const count = (
     await db.select().from(payments).where(eq(payments.tenantId, m.tenantId))
   ).length;
@@ -1825,23 +1837,16 @@ export async function addPayment(
     notes: input.notes || null,
     createdAt: Date.now(),
   };
-  await db.insert(payments).values(row);
-  if (receipt)
-    await db
-      .update(customers)
-      .set({ outstanding: Math.max(0, party.outstanding - input.amount) })
-      .where(
-        and(eq(customers.id, party.id), eq(customers.tenantId, m.tenantId)),
-      );
-  else
-    await db
-      .update(suppliers)
-      .set({ outstanding: Math.max(0, party.outstanding - input.amount) })
-      .where(
-        and(eq(suppliers.id, party.id), eq(suppliers.tenantId, m.tenantId)),
-      );
+  const ledgerUpdate = receipt
+    ? db.update(customers).set({outstanding: balanceDelta(customers.outstanding, -input.amount)})
+        .where(and(eq(customers.id, party.id), eq(customers.tenantId, m.tenantId)))
+    : db.update(suppliers).set({outstanding: balanceDelta(suppliers.outstanding, -input.amount)})
+        .where(and(eq(suppliers.id, party.id), eq(suppliers.tenantId, m.tenantId)));
+  await commitStockBatch(db, m, [db.insert(payments).values(row), ledgerUpdate]);
+  try {
   await audit(m.tenantId, userId, "payment.created", row.paymentNo);
   await backup(m.tenantId);
+  } catch { console.error("Payment committed; secondary audit/backup failed"); }
   return row;
 }
 
@@ -2697,7 +2702,8 @@ export async function updateBatchStock(
       .where(and(eq(products.id, id), eq(products.tenantId, m.tenantId)))
       .limit(1);
   if (!row) throw new Error("Stock batch not found");
-  const stock = Math.trunc(Number(input.stock));
+  const stock = Number(input.stock);
+  if (!Number.isSafeInteger(stock)) throw new Error("Stock must be a whole number");
   if (stock < 0) throw new Error("Stock cannot be negative");
   if (!input.reason?.trim()) throw new Error("Select an adjustment reason");
   const multiplier = row.packMultiplier || 1,
@@ -2713,7 +2719,7 @@ export async function updateBatchStock(
       purchaseRate: Number(input.purchaseRate),
       saleRate: Number(input.saleRate),
     };
-  await db.batch([
+  await commitStockBatch(db, m, [
     db
       .update(products)
       .set(values)
@@ -2732,7 +2738,8 @@ export async function updateBatchStock(
         userId,
         createdAt: now,
       }),
-  ]);
+  ], [snapshotUnchanged(products, and(eq(products.id, id), eq(products.tenantId, m.tenantId))!, [row])]);
+  try {
   await audit(
     m.tenantId,
     userId,
@@ -2740,6 +2747,7 @@ export async function updateBatchStock(
     `${row.name} ${row.batch}: ${row.stock} → ${stock} (${input.reason})`,
   );
   await backup(m.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return { ...row, ...values };
 }
 
@@ -2800,6 +2808,10 @@ export async function updateSalesInvoice(
       x.productId,
       (restored.get(x.productId) || 0) + x.quantity + x.freeQuantity,
     );
+  for (const x of input.items) {
+    if (!Number.isSafeInteger(Number(x.quantity)) || Number(x.quantity) <= 0 || !Number.isSafeInteger(Number(x.freeQuantity || 0)) || Number(x.freeQuantity || 0) < 0)
+      throw new Error("Enter positive whole billed units and nonnegative whole free units");
+  }
   const requested = new Map<string, number>();
   for (const x of input.items)
     requested.set(
@@ -2904,12 +2916,12 @@ export async function updateSalesInvoice(
       ...lines.map((x) => db.insert(invoiceLines).values(x)),
     ];
   for (const p of plist) {
-    const next = (restored.get(p.id) || p.stock) - (requested.get(p.id) || 0);
+    const next = (restored.get(p.id) ?? p.stock) - (requested.get(p.id) || 0);
     if (next !== p.stock)
       statements.push(
         db
           .update(products)
-          .set({ stock: next })
+          .set({ stock: stockDelta(products.stock, next - p.stock), physicalStock: sql`MAX(0, ${products.physicalStock} + ${(next - p.stock) * (p.packMultiplier || 1)})` })
           .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
       );
   }
@@ -2918,7 +2930,7 @@ export async function updateSalesInvoice(
       db
         .update(customers)
         .set({
-          outstanding: Math.max(0, customer.outstanding + newDue - oldDue),
+          outstanding: balanceDelta(customers.outstanding, newDue - oldDue),
         })
         .where(
           and(
@@ -2927,6 +2939,14 @@ export async function updateSalesInvoice(
           ),
         ),
     );
+  if (current.customerId !== customer.id) {
+    statements.push(
+      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, -oldDue)})
+        .where(and(eq(customers.id, current.customerId), eq(customers.tenantId, m.tenantId))),
+      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, newDue)})
+        .where(and(eq(customers.id, customer.id), eq(customers.tenantId, m.tenantId))),
+    );
+  }
   statements.push(
     db
       .update(invoices)
@@ -2969,7 +2989,8 @@ export async function updateSalesInvoice(
       })
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, m.tenantId))),
   );
-  await db.batch(statements);
+  await commitStockBatch(db, m, statements, [snapshotUnchanged(invoices, and(eq(invoices.id, id), eq(invoices.tenantId, m.tenantId))!, [current]), snapshotUnchanged(invoiceLines, and(eq(invoiceLines.invoiceId, id), eq(invoiceLines.tenantId, m.tenantId))!, old)]);
+  try {
   await audit(
     m.tenantId,
     userId,
@@ -2977,6 +2998,7 @@ export async function updateSalesInvoice(
     `${current.invoiceNo} · stock reversed and reapplied`,
   );
   await backup(m.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return getSalesInvoice(userId, id);
 }
 
@@ -3025,6 +3047,7 @@ export async function replacePurchaseInward(
       )
       .limit(1);
   if (!current) throw new Error("Purchase inward not found");
+  const oldCharges = await db.select().from(purchaseCharges).where(and(eq(purchaseCharges.inwardId, id), eq(purchaseCharges.tenantId, m.tenantId)));
   const oldItems = await db
       .select()
       .from(purchaseInwardItems)
@@ -3187,7 +3210,7 @@ export async function replacePurchaseInward(
       statements.push(
         db
           .update(products)
-          .set({ stock: next, physicalStock: next * (p.packMultiplier || 1) })
+          .set({ stock: stockDelta(products.stock, next - p.stock), physicalStock: sql`MAX(0, ${products.physicalStock} + ${(next - p.stock) * (p.packMultiplier || 1)})` })
           .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
       );
   }
@@ -3250,7 +3273,7 @@ export async function replacePurchaseInward(
           .set({
             name: String(h.supplierName || current.supplierName),
             gstin: String(h.supplierGstin || "") || null,
-            outstanding: Math.max(0, s.outstanding + newDue - oldDue),
+            outstanding: balanceDelta(suppliers.outstanding, newDue - oldDue),
           })
           .where(
             and(eq(suppliers.id, s.id), eq(suppliers.tenantId, m.tenantId)),
@@ -3290,7 +3313,8 @@ export async function replacePurchaseInward(
         ),
       ),
   );
-  await db.batch(statements);
+  await commitStockBatch(db, m, statements, [snapshotUnchanged(purchaseInwards, and(eq(purchaseInwards.id, id), eq(purchaseInwards.tenantId, m.tenantId))!, [current]), snapshotUnchanged(purchaseInwardItems, and(eq(purchaseInwardItems.inwardId, id), eq(purchaseInwardItems.tenantId, m.tenantId))!, oldItems), snapshotUnchanged(purchaseCharges, and(eq(purchaseCharges.inwardId, id), eq(purchaseCharges.tenantId, m.tenantId))!, oldCharges)]);
+  try {
   await audit(
     m.tenantId,
     userId,
@@ -3298,6 +3322,7 @@ export async function replacePurchaseInward(
     `${current.inwardNo} · ${input.items.length} items · inventory synced`,
   );
   await backup(m.tenantId);
+  } catch { console.error("Inventory committed; secondary audit/backup failed"); }
   return getPurchaseInward(userId, id);
 }
 
