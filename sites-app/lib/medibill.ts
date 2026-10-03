@@ -1,3 +1,4 @@
+import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
 import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
 import { requireRestoreAdmin, validateRestoreSnapshot } from "./restore-security";
@@ -3305,4 +3306,13 @@ export async function deleteSalesInvoice(userId: string, id: string, input: {con
 }
 export async function deletePurchaseInvoice(userId: string, id: string, input: {confirm_delete?: boolean; reason?: string}) {
   return deleteInvoiceRecord(env.DB, await getMembership(userId), "purchase", id, input, () => createFullBackup(userId, "pre_delete_purchase"));
+}
+
+export async function updateCustomer(userId: string, id: string, input: Parameters<typeof addCustomer>[1]) {
+  const member = await getMembership(userId);
+  if (!member) throw new Error("Administrator access required");
+  const updated = await persistCustomerEdit(getDb(), member, id, input);
+  try { await backup(member.tenantId); }
+  catch { console.error("Customer saved; secondary backup failed"); }
+  return updated;
 }
