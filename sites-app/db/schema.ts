@@ -592,3 +592,11 @@ export const agencyProfiles = sqliteTable("agency_profiles", {
   signatureKey: text("signature_key"),
   updatedAt: integer("updated_at").notNull(),
 });
+
+// Internal save receipts are never supplied by tenant backup payloads.
+export const documentRequests = sqliteTable("document_requests", {
+  id: text("id").primaryKey(), tenantId: text("tenant_id").notNull(),
+  userId: text("user_id").notNull(), kind: text("kind").notNull(),
+  requestKey: text("request_key").notNull(), payloadHash: text("payload_hash").notNull(),
+  resultJson: text("result_json").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [uniqueIndex("document_requests_scope").on(table.tenantId,table.userId,table.kind,table.requestKey)]);
