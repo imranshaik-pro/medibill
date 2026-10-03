@@ -17,18 +17,23 @@ export class InvoiceDeletionError extends Error {
   constructor(message: string, status = 409) { super(message); this.status = status; }
 }
 
-export async function nextDocumentNumber(db: D1Database, tenantId: string, kind: Kind, prefix: string) {
-  const table = kind === 'sale' ? 'invoices' : 'purchase_inwards';
-  const column = kind === 'sale' ? 'invoice_no' : 'inward_no';
-  const live = await db.prepare(`SELECT ${column} AS number FROM ${table} WHERE tenant_id=?`).bind(tenantId).all<{number:string}>();
-  const archived = await db.prepare(`SELECT json_extract(details, '$.header.${column}') AS number FROM audit_logs WHERE tenant_id=? AND action=? AND json_valid(details)`).bind(tenantId, `${kind}.deleted`).all<{number:string}>();
-  let max = 0;
-  for (const row of [...live.results, ...archived.results]) {
-    if (typeof row.number !== 'string' || !row.number.startsWith(prefix)) continue;
-    const suffix = row.number.slice(prefix.length);
-    if (/^\d+$/.test(suffix)) max = Math.max(max, Number(suffix));
-  }
-  return prefix + String(max + 1).padStart(4, '0');
+export async function nextDocumentNumber(db: D1Database, tenantId: string, kind: Kind | 'legacy_purchase' | 'payment', prefix: string) {
+  const definitions = {sale:['invoices','invoice_no'],purchase:['purchase_inwards','inward_no'],legacy_purchase:['purchases','purchase_no'],payment:['payments','payment_no']} as const;
+  const [table,column] = definitions[kind];
+  // The table/column identifiers above are a fixed allowlist. All input values bind.
+  const archive = kind === 'sale' || kind === 'purchase'
+    ? `UNION ALL SELECT json_extract(details, '$.header.${column}') AS number FROM audit_logs WHERE tenant_id=? AND action=? AND json_valid(details)` : '';
+  const bindings: (string | number)[] = [tenantId,kind,prefix,prefix.length+1,tenantId];
+  if (archive) bindings.push(tenantId,`${kind}.deleted`);
+  bindings.push(prefix.length,prefix,prefix.length+1,prefix.length+1);
+  const row = await db.prepare(`INSERT INTO document_sequences(tenant_id,kind,prefix,last_value)
+    SELECT ?,?,?,COALESCE(MAX(CAST(SUBSTR(number,?) AS INTEGER)),0)+1
+    FROM (SELECT ${column} AS number FROM ${table} WHERE tenant_id=? ${archive})
+    WHERE SUBSTR(number,1,?)=? AND SUBSTR(number,?)<>'' AND SUBSTR(number,?) NOT GLOB '*[^0-9]*'
+    ON CONFLICT(tenant_id,kind,prefix) DO UPDATE SET last_value=MAX(document_sequences.last_value+1,excluded.last_value)
+    RETURNING last_value`).bind(...bindings).first<{last_value:number}>();
+  if (!row || !Number.isSafeInteger(row.last_value)) throw new Error('Could not reserve a document number');
+  return prefix + String(row.last_value).padStart(4,'0');
 }
 
 export async function deleteInvoiceRecord(
