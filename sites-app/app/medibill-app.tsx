@@ -425,7 +425,7 @@ export function MediBillApp({
               action="Add customer"
               click={() => setModal("customer")}
             >
-              <Customers rows={searchTarget.page==="customers" ? withSearchMatch(data.customers,searchTarget.record).filter(x=>x.name.toLowerCase().includes(searchTarget.query.toLowerCase())) : data.customers} />
+              <Customers rows={searchTarget.page==="customers" ? withSearchMatch(data.customers,searchTarget.record).filter(x=>x.name.toLowerCase().includes(searchTarget.query.toLowerCase())) : data.customers} changed={load} />
             </List>
           )}{" "}
           {page === "catalog" && (
@@ -1045,16 +1045,40 @@ function Invoices({ rows }: { rows: Invoice[] }) {
     <Empty text="No invoices yet." />
   );
 }
-function Customers({ rows }: { rows: Customer[] }) {
+function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise<void> | void }) {
+  const [editing, setEditing] = useState<Customer | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  async function update(body: Record<string, unknown>) {
+    if (!editing || !window.confirm("Are you sure you want to update this customer?")) return;
+    setSaving(true); setFeedback("");
+    try {
+      const response = await fetch(`/api/customers/${encodeURIComponent(editing.id)}`, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+      const result = await response.json() as {error?: string};
+      if (!response.ok) throw new Error(result.error || "Unable to update customer");
+      setEditing(null); setFeedback("Customer updated successfully.");
+      try { await changed(); }
+      catch { setFeedback("Customer saved successfully, but the list could not refresh. Reload to see the saved changes."); }
+    } catch (error) { setFeedback(error instanceof Error ? error.message : "Unable to update customer"); }
+    finally { setSaving(false); }
+  }
   return (
-    <div className="table-scroll">
+    <div>
+      {feedback && <p role="status">{feedback}</p>}
+      {editing && <section className="card" aria-label="Edit customer">
+        <h3>Edit customer</h3>
+        {feedback && <p role="alert" className="lookup-message">{feedback}</p>}
+        <button type="button" disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
+        <CustomerForm key={editing.id} initial={editing} busy={saving} go={update} />
+      </section>}
+      <div className="table-scroll">
       <table>
         <thead>
           <tr>
             <th>Firm</th>
             <th>GSTIN</th>
             <th>Phone</th>
-            <th>Outstanding</th>
+            <th>Outstanding</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -1065,12 +1089,12 @@ function Customers({ rows }: { rows: Customer[] }) {
               </td>
               <td>{r.gstin || "Unregistered"}</td>
               <td>{r.phone}</td>
-              <td>{money(r.outstanding)}</td>
+              <td>{money(r.outstanding)}</td><td><button type="button" onClick={() => {setEditing(r); setFeedback("");}}>Edit</button></td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </div></div>
   );
 }
 function ProductCatalog({ rows }: { rows: ProductMaster[] }) {
@@ -1707,25 +1731,27 @@ function PartyLookup({
   );
 }
 function CustomerForm({
+  initial,
   busy,
   go,
 }: {
+  initial?: Customer;
   busy: boolean;
   go: (b: Record<string, unknown>) => void;
 }) {
   const [f, setF] = useState({
-      name: "",
-      legalName: "",
-      tradeName: "",
-      phone: "",
-      gstin: "",
-      dlNo: "",
-      address: "",
-      city: "",
-      state: "Telangana",
-      stateCode: "36",
-      pinCode: "",
-      registrationStatus: "Unverified",
+      name: initial?.name || "",
+      legalName: initial?.legalName || "",
+      tradeName: initial?.tradeName || "",
+      phone: initial?.phone || "",
+      gstin: initial?.gstin || "",
+      dlNo: initial?.dlNo || "",
+      address: initial?.address || "",
+      city: initial?.city || "",
+      state: initial?.state || "Telangana",
+      stateCode: initial?.stateCode || "36",
+      pinCode: initial?.pinCode || "",
+      registrationStatus: initial?.registrationStatus || "Unverified",
     }),
     apply = (x: LookupParty) =>
       setF({
@@ -1746,6 +1772,7 @@ function CustomerForm({
   return (
     <form
       className="form party-form"
+      noValidate={Boolean(initial)}
       onSubmit={(e) => {
         e.preventDefault();
         go(f);
@@ -1776,7 +1803,9 @@ function CustomerForm({
           Phone
           <Input
             required
-            pattern="\d{10}"
+            inputMode="tel"
+            autoComplete="tel"
+            pattern="[0-9]{10}"
             value={f.phone}
             onChange={(e) => setF({ ...f, phone: e.target.value })}
           />
@@ -1856,7 +1885,7 @@ function CustomerForm({
           }
         />
       </Label>
-      <Button disabled={busy}>{busy ? "Saving…" : "Save customer"}</Button>
+      <Button disabled={busy}>{busy ? "Saving…" : initial ? "Update customer" : "Save customer"}</Button>
     </form>
   );
 }
