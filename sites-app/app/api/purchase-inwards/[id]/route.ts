@@ -1,0 +1,18 @@
+import { InvoiceDeletionError } from "@/lib/invoice-deletion";
+import { deletePurchaseInvoice } from "@/lib/medibill";
+import{NextResponse}from"next/server";import{getChatGPTUser}from"@/app/chatgpt-auth";import{getPurchaseInward,replacePurchaseInward}from"@/lib/medibill";
+type Context={params:Promise<{id:string}>};
+export async function GET(_:Request,{params}:Context){const user=await getChatGPTUser();if(!user)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await getPurchaseInward(user.userId,(await params).id))}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Unable to load purchase inward"},{status:404})}}
+export async function PATCH(request:Request,{params}:Context){const user=await getChatGPTUser();if(!user)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await replacePurchaseInward(user.userId,(await params).id,await request.json()))}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"Unable to update purchase inward"},{status:400})}}
+
+export async function DELETE(request: Request, {params}: Context) {
+  const user = await getChatGPTUser();
+  if (!user) return NextResponse.json({error:"Unauthorized"},{status:401});
+  try {
+    let input: {confirm_delete?: boolean; reason?: string};
+    try { const raw: unknown = await request.json(); if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({error:"Invalid deletion request."},{status:400}); input=raw as {confirm_delete?: boolean; reason?: string}; } catch { return NextResponse.json({error:"A JSON confirmation and reason are required."},{status:400}); }
+    return NextResponse.json(await deletePurchaseInvoice(user.userId,(await params).id,input));
+  } catch(error) {
+    return NextResponse.json({error:error instanceof Error?error.message:"Unable to delete invoice"}, {status:error instanceof InvoiceDeletionError?error.status:500});
+  }
+}
