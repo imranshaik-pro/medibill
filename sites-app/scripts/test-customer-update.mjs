@@ -19,9 +19,12 @@ try {
  for(const [id,input] of [['F',{name:'Wrong'}],['C',{phone:'123'}],['C',{gstin:'INVALID'}],['C',{name:'Duplicate'}]])await assert.rejects(edit(db,member,id,input));
  assert.equal((await DB.prepare("SELECT name FROM customers WHERE id='C'").first()).name,'Corrected Customer');
  await assert.rejects(edit(db,{...member,role:'staff'},'C',{name:'Denied'}));
- await DB.prepare("UPDATE users SET role='staff' WHERE id='U'").run();
+ result=await edit(db,member,'C',{gstin:' 36 abcde1234f1z5 '});assert.equal(result.gstin,'36ABCDE1234F1Z5');
+ assert.equal((await DB.prepare("SELECT gstin FROM customers WHERE id='C'").first()).gstin,'36ABCDE1234F1Z5');
+ result=await edit(db,member,'C',{gstin:''});assert.equal(result.gstin,null);
+ await DB.prepare("UPDATE users SET role='staff'  WHERE id='U'").run();
  await assert.rejects(edit(db,member,'C',{name:'Revoked'}));
  assert.equal((await DB.prepare("SELECT name FROM customers WHERE id='C'").first()).name,'Corrected Customer');
- assert.equal((await DB.prepare("SELECT count(*) n FROM audit_logs WHERE action='customer.updated'").first()).n,2);
+ assert.equal((await DB.prepare("SELECT count(*) n FROM audit_logs WHERE action='customer.updated'").first()).n,4);
  console.log('Customer edits, formatted/legacy phones, partial-field preservation, tenant isolation and atomic rollback passed.');
 }finally{await mf.dispose();fs.rmSync(temp,{recursive:true,force:true});}
