@@ -23,9 +23,10 @@ export async function persistCustomerEdit(db: any, member: {id: string; tenantId
     updates.phone = /^\d{10}$/.test(phone) ? phone : existing.phone;
   }
   for (const key of ["gstin","dlNo"]) if (updates[key]) updates[key] = updates[key].toUpperCase();
-  if (updates.gstin && updates.gstin !== existing.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(updates.gstin)) throw new Error("Enter a valid GSTIN");
+  if (updates.gstin) updates.gstin = updates.gstin.replace(/\s/g, "");
+  if (updates.gstin && updates.gstin !== existing.gstin?.replace(/\s/g, "").toUpperCase() && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(updates.gstin)) throw new Error("GSTIN must contain 15 characters in the format 36ABCDE1234F1Z5. Leave it blank for an unregistered customer.");
   if (updates.pinCode && updates.pinCode !== existing.pinCode && !/^\d{6}$/.test(updates.pinCode)) throw new Error("Enter a 6-digit pincode");
-  if (updates.stateCode && !/^\d{2}$/.test(updates.stateCode)) throw new Error("Enter a 2-digit state code");
+  if (updates.stateCode && updates.stateCode !== existing.stateCode && !/^\d{2}$/.test(updates.stateCode)) throw new Error("Enter a 2-digit state code");
   if ("registrationStatus" in updates && !updates.registrationStatus) updates.registrationStatus = "Unverified";
   // Audit failure or revoked access rolls back the edit instead of returning an ambiguous success.
   await db.batch([
