@@ -1049,13 +1049,21 @@ function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise
   const [editing, setEditing] = useState<Customer | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [pendingEdit, setPendingEdit] = useState<Record<string, unknown> | null>(null);
+  function requestUpdate(body: Record<string, unknown>) {
+    setFeedback(""); setPendingEdit(body);
+  }
   async function update(body: Record<string, unknown>) {
-    if (!editing || !window.confirm("Are you sure you want to update this customer?")) return;
+    if (!editing || saving) return;
+    setPendingEdit(null);
     setSaving(true); setFeedback("");
     try {
       const response = await fetch(`/api/customers/${encodeURIComponent(editing.id)}`, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-      const result = await response.json() as {error?: string};
-      if (!response.ok) throw new Error(result.error || "Unable to update customer");
+      const result = await response.json().catch(() => null) as {error?: string} | null;
+      if (!response.ok) throw new Error(result?.error || (response.status === 404 || response.status === 405
+        ? "Customer update endpoint is missing. Deploy the customer-edit backend patch."
+        : `Customer update failed (HTTP ${response.status}). Please retry.`));
+      if (!result) throw new Error("Unexpected update response. Please refresh and sign in again.");
       setEditing(null); setFeedback("Customer updated successfully.");
       try { await changed(); }
       catch { setFeedback("Customer saved successfully, but the list could not refresh. Reload to see the saved changes."); }
@@ -1068,8 +1076,14 @@ function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise
       {editing && <section className="card" aria-label="Edit customer">
         <h3>Edit customer</h3>
         {feedback && <p role="alert" className="lookup-message">{feedback}</p>}
-        <button type="button" disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
-        <CustomerForm key={editing.id} initial={editing} busy={saving} go={update} />
+        <button type="button" disabled={saving} onClick={() => { setEditing(null); setPendingEdit(null); }}>Cancel</button>
+        <CustomerForm key={editing.id} initial={editing} busy={saving || Boolean(pendingEdit)} go={requestUpdate} />
+        {pendingEdit && <div role="alertdialog" aria-label="Confirm customer update" className="card">
+          <h4>Confirm customer update</h4>
+          <p>Change “{editing.name}” to “{String(pendingEdit.name)}”? Existing invoices and balances will be preserved.</p>
+          <Button type="button" disabled={saving} onClick={() => update(pendingEdit)}>Confirm update</Button>
+          <Button type="button" variant="outline" disabled={saving} onClick={() => setPendingEdit(null)}>Keep editing</Button>
+        </div>}
       </section>}
       <div className="table-scroll">
       <table>
@@ -1885,7 +1899,7 @@ function CustomerForm({
           }
         />
       </Label>
-      <Button disabled={busy}>{busy ? "Saving…" : initial ? "Update customer" : "Save customer"}</Button>
+      <Button type="submit" disabled={busy}>{busy ? "Saving…" : initial ? "Update customer" : "Save customer"}</Button>
     </form>
   );
 }
