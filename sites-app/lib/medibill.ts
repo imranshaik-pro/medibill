@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { requireRestoreAdmin, validateRestoreSnapshot } from "./restore-security";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   agencyProfiles,
@@ -2143,31 +2144,7 @@ export async function getBackupFile(userId: string, id: string) {
   if (!object) throw new Error("Backup file is missing");
   return { row, object };
 }
-const snapshotArrays = [
-  "customers",
-  "products",
-  "productMasters",
-  "invoices",
-  "invoiceLines",
-  "suppliers",
-  "purchases",
-  "purchaseInwards",
-  "purchaseInwardItems",
-  "purchaseCharges",
-  "stockAdjustments",
-  "payments",
-  "returns",
-] as const;
-export function validateBackupPayload(raw: unknown, tenantId: string) {
-  const x = raw as Record<string, any>;
-  if (!x || typeof x !== "object" || ![1, 2].includes(Number(x.version)))
-    throw new Error("Unsupported or damaged MediBill backup");
-  if (x.tenantId !== tenantId)
-    throw new Error("This backup belongs to a different agency workspace");
-  for (const key of snapshotArrays)
-    if (!Array.isArray(x[key])) throw new Error(`Backup is missing ${key}`);
-  return x;
-}
+export const validateBackupPayload = validateRestoreSnapshot;
 export async function restoreFullBackup(
   userId: string,
   raw: unknown,
@@ -2175,6 +2152,7 @@ export async function restoreFullBackup(
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
+  requireRestoreAdmin(m);
   if (confirmation !== "RESTORE") throw new Error("Type RESTORE to confirm");
   const x = validateBackupPayload(raw, m.tenantId);
   await createFullBackup(userId, "pre_restore");
@@ -2221,9 +2199,16 @@ export async function restoreFullBackup(
   for (const r of x.returns) ins.push(db.insert(returns).values(r));
   for (const r of x.stockAdjustments)
     ins.push(db.insert(stockAdjustments).values(r));
-  await db.batch([...del, ...ins]);
-  await audit(m.tenantId, userId, "backup.restored", String(x.createdAt));
-  await backup(m.tenantId);
+  // Recheck authorization inside the atomic batch, including during role revocation.
+  const restoreAudit = db.insert(auditLogs).values({
+    id: crypto.randomUUID(),
+    tenantId: m.tenantId, userId, action: "backup.restored",
+    details: String(x.createdAt), createdAt: sql`CASE WHEN EXISTS (SELECT 1 FROM users WHERE id = ${userId} AND tenant_id = ${m.tenantId} AND status = 'active' AND role IN ('admin', 'super_admin')) THEN ${Date.now()} ELSE NULL END`,
+  });
+  await db.batch([restoreAudit, ...del, ...ins]);
+  // A failed secondary snapshot must not report a committed restore as a failure.
+  try { await backup(m.tenantId); }
+  catch { console.error("Post-restore snapshot failed; pre-restore backup retained"); }
   return {
     restoredAt: x.createdAt,
     counts: {
