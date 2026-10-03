@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
@@ -261,6 +261,8 @@ export function MediBillApp({
     }),
     [data],
   );
+  // Preserve retry keys after uncertain network responses.
+  const saveRequests = useRef(new Map<string,{body:string;key:string}>());
   async function save(path: string, body: Record<string, unknown>) {
     if (
       !window.confirm(
@@ -270,17 +272,36 @@ export function MediBillApp({
       throw new Error("Save cancelled");
     setBusy(true);
     setMsg("");
-    const r = await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const out = await r.json();
-    setBusy(false);
-    if (!r.ok) {
-      setMsg(out.error || "Unable to save");
-      throw new Error(out.error || "Unable to save");
+    const serialized = JSON.stringify(body);
+    const protectedSave = ["/api/invoices","/api/purchases","/api/purchase-inwards","/api/payments"].includes(path);
+    let attempt = saveRequests.current.get(path);
+    const storageKey = "medibill:pending-save:" + path;
+    if (protectedSave) {
+      const fingerprint = crypto.subtle ? [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(serialized)))].map(b=>b.toString(16).padStart(2,"0")).join("") : null;
+      // Only a hash and random key are stored, never invoice/customer data.
+      try {
+        const previous = JSON.parse(sessionStorage.getItem(storageKey) || "null");
+        if (fingerprint && previous?.fingerprint === fingerprint && typeof previous.key === "string") attempt = {body:serialized,key:previous.key};
+      } catch { /* Storage may be disabled; in-memory retry protection remains. */ }
+      if (!attempt || attempt.body !== serialized) attempt = {body:serialized,key:crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,"0")).join("")};
+      saveRequests.current.set(path,attempt);
+      try { if (fingerprint) sessionStorage.setItem(storageKey,JSON.stringify({fingerprint,key:attempt.key})); } catch { /* Use in-memory key. */ }
     }
+    let out;
+    try {
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(protectedSave ? {"Idempotency-Key":attempt!.key} : {}) },
+        body: serialized,
+      });
+      out = await r.json();
+      if (!r.ok) throw new Error(out.error || "Unable to save");
+      saveRequests.current.delete(path);
+      if (protectedSave) try { sessionStorage.removeItem(storageKey); } catch { /* Storage disabled. */ }
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : "Unable to save. Retry this form.");
+      throw error;
+    } finally { setBusy(false); }
     setModal(null);
     await load();
     setMsg("Saved successfully");
@@ -1050,21 +1071,27 @@ function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [pendingEdit, setPendingEdit] = useState<Record<string, unknown> | null>(null);
+  const editFeedback = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (pendingEdit || feedback) editFeedback.current?.scrollIntoView({block:"center",behavior:"smooth"});
+  }, [pendingEdit,feedback]);
   function requestUpdate(body: Record<string, unknown>) {
     setFeedback(""); setPendingEdit(body);
   }
   async function update(body: Record<string, unknown>) {
     if (!editing || saving) return;
     setPendingEdit(null);
-    setSaving(true); setFeedback("");
+    setSaving(true); setFeedback("Saving customer changes…");
     try {
-      const response = await fetch(`/api/customers/${encodeURIComponent(editing.id)}`, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-      const result = await response.json().catch(() => null) as {error?: string} | null;
+      const response = await fetch(`/api/customers/${encodeURIComponent(editing.id)}`, {method: "PATCH", headers: {"Content-Type": "application/json"}, cache:"no-store", signal:AbortSignal.timeout(30000), body: JSON.stringify(body)});
+      const result = await response.json().catch(() => null) as {error?: string;gstin?:string|null} | null;
       if (!response.ok) throw new Error(result?.error || (response.status === 404 || response.status === 405
         ? "Customer update endpoint is missing. Deploy the customer-edit backend patch."
         : `Customer update failed (HTTP ${response.status}). Please retry.`));
       if (!result) throw new Error("Unexpected update response. Please refresh and sign in again.");
-      setEditing(null); setFeedback("Customer updated successfully.");
+      if (Object.hasOwn(body,"gstin") && (result.gstin || "") !== String(body.gstin || "").replace(/\s/g, "").toUpperCase())
+        throw new Error("The server did not return the updated GSTIN. Keep this form open and check the deployed backend.");
+      setEditing(null); setFeedback("Customer updated successfully" + (Object.hasOwn(body,"gstin") ? ` · GSTIN: ${result.gstin || "Unregistered"}` : "."));
       try { await changed(); }
       catch { setFeedback("Customer saved successfully, but the list could not refresh. Reload to see the saved changes."); }
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Unable to update customer"); }
@@ -1072,15 +1099,16 @@ function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise
   }
   return (
     <div>
-      {feedback && <p role="status">{feedback}</p>}
+      <div ref={editFeedback} aria-live="polite">{feedback && <p role="status">{feedback}</p>}</div>
       {editing && <section className="card" aria-label="Edit customer">
         <h3>Edit customer</h3>
         {feedback && <p role="alert" className="lookup-message">{feedback}</p>}
         <button type="button" disabled={saving} onClick={() => { setEditing(null); setPendingEdit(null); }}>Cancel</button>
         <CustomerForm key={editing.id} initial={editing} busy={saving || Boolean(pendingEdit)} go={requestUpdate} />
-        {pendingEdit && <div role="alertdialog" aria-label="Confirm customer update" className="card">
+        {pendingEdit && <div role="alertdialog" aria-label="Confirm customer update" className="card" style={{border:"2px solid #0f766e",padding:16}} ref={editFeedback}>
           <h4>Confirm customer update</h4>
-          <p>Change “{editing.name}” to “{String(pendingEdit.name)}”? Existing invoices and balances will be preserved.</p>
+          <p>Change “{editing.name}” to “{String(pendingEdit.name ?? editing.name)}”? Existing invoices and balances will be preserved.</p>
+          {Object.hasOwn(pendingEdit,"gstin") && <p><strong>GSTIN:</strong> {editing.gstin || "Unregistered"} → {String(pendingEdit.gstin || "Unregistered")}</p>}
           <Button type="button" disabled={saving} onClick={() => update(pendingEdit)}>Confirm update</Button>
           <Button type="button" variant="outline" disabled={saving} onClick={() => setPendingEdit(null)}>Keep editing</Button>
         </div>}
@@ -1783,15 +1811,26 @@ function CustomerForm({
         pinCode: x.pinCode || "",
         registrationStatus: x.registrationStatus || "Unverified",
       });
+  const [fieldError,setFieldError] = useState("");
   return (
     <form
       className="form party-form"
       noValidate={Boolean(initial)}
       onSubmit={(e) => {
         e.preventDefault();
-        go(f);
+        const gstin = f.gstin.replace(/\s/g, "").toUpperCase();
+        if (gstin && gstin !== (initial?.gstin || "").replace(/\s/g,"").toUpperCase() && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+          setFieldError("Enter a 15-character GSTIN, for example 36ABCDE1234F1Z5, or leave it blank for an unregistered customer.");
+          return;
+        }
+        setFieldError("");
+        const body: Record<string,unknown> = {...f,gstin};
+        if (initial) for (const key of Object.keys(body)) if (body[key] === (initial[key as keyof Customer] ?? "")) delete body[key];
+        if (initial && !Object.keys(body).length) { setFieldError("No changes to save."); return; }
+        go(body);
       }}
     >
+      {fieldError && <p role="alert" style={{color:"#b91c1c"}}>{fieldError}</p>}
       <PartyLookup type="customer" apply={apply} />
       <div className="form-row">
         <Label>
@@ -1827,14 +1866,15 @@ function CustomerForm({
         <Label>
           GSTIN
           <Input
-            maxLength={15}
+            aria-label="Customer GSTIN"
+            autoComplete="off"
             value={f.gstin}
             onChange={(e) =>
               setF({
                 ...f,
-                gstin: e.target.value.toUpperCase(),
+                gstin: e.target.value.replace(/\s/g, "").toUpperCase(),
                 stateCode:
-                  e.target.value.slice(0, 2).replace(/\D/g, "") || f.stateCode,
+                  /^\d{2}/.test(e.target.value.replace(/\s/g, "")) ? e.target.value.replace(/\s/g, "").slice(0,2) : f.stateCode,
               })
             }
           />
@@ -1899,6 +1939,7 @@ function CustomerForm({
           }
         />
       </Label>
+      {fieldError && <p role="alert" style={{color:"#b91c1c"}}>{fieldError}</p>}
       <Button type="submit" disabled={busy}>{busy ? "Saving…" : initial ? "Update customer" : "Save customer"}</Button>
     </form>
   );
