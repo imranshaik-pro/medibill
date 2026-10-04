@@ -39,7 +39,7 @@ export async function POST(request:Request){
     return json({requestId,engine:bindings.GEMINI_API_KEY?"gemini-multi-image-vision":"openai-multi-image-vision",imageCount:files.length,data:publicScanData(data),validation:{warnings:data.warnings,confidence:data.confidence,evidence:data.evidence}});
   }catch(error){
     const failure=error instanceof VisionRequestError?error:new VisionRequestError("VISION_INTERNAL_ERROR","The scan could not finish. Please retry or enter details manually.",500);
-    console.error("Product scan failed",{requestId,code:failure.code,status:failure.status});
+    console.error("Product scan failed",{requestId,code:failure.code,status:failure.status,upstreamStatus:failure.upstreamStatus,providerStatus:failure.providerStatus,provider:bindings.GEMINI_API_KEY?"gemini":"openai",model:bindings.GEMINI_API_KEY?(bindings.GEMINI_VISION_MODEL||"gemini-3.8-flash"):(bindings.PRODUCT_VISION_MODEL||"gpt-4o-mini")});
     return json({error:failure.message,code:failure.code,requestId},{status:failure.status});
   }finally{
     // Drop every large binary/base64 reference on success, provider failure, timeout, or validation failure.
