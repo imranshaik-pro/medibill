@@ -5,8 +5,10 @@ on:
     branches: [sites-v34-fullstack-sync]
     paths:
       - "sites-app/lib/financial-validation.ts"
+      - "sites-app/lib/medibill.ts"
       - "sites-app/tests/financial-validation.test.mjs"
       - "sites-app/package.json"
+      - "sites-app/package-lock.json"
       - ".github/workflows/sites-app-validation.yml"
   workflow_dispatch:
 
@@ -26,7 +28,7 @@ jobs:
       - name: Run sales financial validation tests
         run: npm run test:financial-validation
 
-  lint-and-build:
+  full-project-lint:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,7 +44,24 @@ jobs:
           cache-dependency-path: sites-app/package-lock.json
       - name: Install Sites App dependencies
         run: npm run install:ci
-      - name: Run ESLint
+      - name: Run full-project ESLint
         run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
       - name: Build Sites App
         run: npm run build
