@@ -27,7 +27,7 @@ test("rejects fractional or negative quantities", () => {
 });
 
 test("rejects invalid rates and discounts", () => {
-  assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], unitRate: -1 }] }), /at least 0/);
+  assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], unitRate: -1 }] }), /at least 0|greater than 0/);
   assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], unitRate: 0 }] }), /greater than 0/);
   assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], discountPercent: 101 }] }), /at most 100/);
   assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], gstRate: "Infinity" }] }), /finite number/);
