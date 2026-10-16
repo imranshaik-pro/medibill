@@ -57,13 +57,30 @@ export function validateSaleFinancialInput(input: unknown): void {
   readFiniteNumber(sale.freightGstRate, "freight GST rate", { optional: true, defaultValue: 0, min: 0, max: 100 });
   readFiniteNumber(sale.insuranceGstRate, "insurance GST rate", { optional: true, defaultValue: 0, min: 0, max: 100 });
   const discountType = sale.cashDiscountType;
-  if (discountType !== undefined && discountType !== "amount" && discountType !== "percent") {
+  if (discountType !== undefined && discountType !== "flat" && discountType !== "percent") {
     throw new Error("Invalid cash discount type");
   }
-  readFiniteNumber(sale.cashDiscount, "cash discount", {
+  const cashDiscount = readFiniteNumber(sale.cashDiscount, "cash discount", {
     optional: true,
     defaultValue: 0,
     min: 0,
     max: discountType === "percent" ? 100 : undefined,
   });
+  const freight = readFiniteNumber(sale.freightAmount, "freight amount", { optional: true, defaultValue: 0, min: 0 });
+  const insurance = readFiniteNumber(sale.insuranceAmount, "insurance amount", { optional: true, defaultValue: 0, min: 0 });
+  const taxableBeforeCashDiscount = sale.items.reduce((sum, rawItem, index) => {
+    const item = rawItem as Record<string, unknown>;
+    const quantity = readFiniteNumber(item.quantity, `quantity in row ${index + 1}`, { min: 1, integer: true });
+    const rate = readFiniteNumber(item.unitRate, `unit rate in row ${index + 1}`, { min: 0 });
+    const discountPercent = readFiniteNumber(item.discountPercent, `discount percent in row ${index + 1}`, { optional: true, defaultValue: 0, min: 0, max: 100 });
+    const gross = Math.round((quantity * rate + Number.EPSILON) * 100) / 100;
+    const lineDiscount = Math.round((gross * discountPercent / 100 + Number.EPSILON) * 100) / 100;
+    return sum + Math.round((gross - lineDiscount + Number.EPSILON) * 100) / 100;
+  }, 0) + freight + insurance;
+  const appliedCashDiscount = discountType === "percent"
+    ? taxableBeforeCashDiscount * cashDiscount / 100
+    : cashDiscount;
+  if (appliedCashDiscount > taxableBeforeCashDiscount + 0.005) {
+    throw new Error("Cash discount cannot exceed the pre-discount invoice value");
+  }
 }
