@@ -30,6 +30,14 @@ import {
 } from "@/db/schema";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
 
+// Deployment policy, never taken from an invoice request. This application defaults
+// to agency/wholesale billing; retail dispensing must be explicitly configured.
+export function billingMode(): "wholesale" | "retail" {
+  const mode = (env as typeof env & { BILLING_MODE?: string }).BILLING_MODE || "wholesale";
+  if (mode !== "wholesale" && mode !== "retail") throw new Error("Invalid BILLING_MODE configuration");
+  return mode;
+}
+
 export async function getMembership(userId: string) {
   const row =
     (
@@ -473,6 +481,7 @@ export async function dashboardData(userId: string) {
   return {
     tenant,
     member,
+    billingMode: billingMode(),
     customers: customerRows,
     productMasters: productMasterRows,
     products: productRows,
@@ -1329,6 +1338,7 @@ function enforcePrescriptionCompliance(
   selectedProducts: Array<typeof products.$inferSelect>,
   masters: Array<typeof productMasters.$inferSelect>,
 ) {
+  if (billingMode() === "wholesale") return false;
   const masterMap = new Map(masters.map((m) => [m.id, m]));
   const flagged = selectedProducts
     .map((p) => (p.productMasterId ? masterMap.get(p.productMasterId) : undefined))
@@ -2965,11 +2975,11 @@ export async function updateSalesInvoice(
         lrNo: input.lrNo || null,
         prescriptionDoctorName: complianceRequired
           ? input.prescriptionDoctorName?.trim() || null
-          : null,
+          : billingMode() === "wholesale" ? current.prescriptionDoctorName : null,
         prescriptionDoctorRegistration: complianceRequired
           ? input.prescriptionDoctorRegistration?.trim().toUpperCase() || null
-          : null,
-        complianceAcknowledged: complianceRequired,
+          : billingMode() === "wholesale" ? current.prescriptionDoctorRegistration : null,
+        complianceAcknowledged: complianceRequired || (billingMode() === "wholesale" && current.complianceAcknowledged),
         freightAmount: freight,
         freightGstRate: Number(input.freightGstRate) || 0,
         insuranceAmount: insurance,

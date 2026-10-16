@@ -201,6 +201,7 @@ type ReturnRow = {
   returnDate: string;
 };
 type Data = {
+  billingMode?: "wholesale" | "retail";
   approvalPending?: boolean;
   tenant: { companyName: string };
   member: { role: string; status?: string };
@@ -1609,6 +1610,7 @@ function Entry({
         )}{" "}
         {type === "invoice" && (
           <SalesInvoiceForm
+            billingMode={data.billingMode}
             busy={busy}
             customers={data.customers}
             products={data.products}

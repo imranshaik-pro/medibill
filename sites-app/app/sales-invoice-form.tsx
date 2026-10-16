@@ -121,6 +121,7 @@ function words(n: number) {
 }
 export function SalesInvoiceForm({
   busy,
+  billingMode = "wholesale",
   customers,
   products,
   productMasters,
@@ -129,6 +130,7 @@ export function SalesInvoiceForm({
   go,
 }: {
   busy: boolean;
+  billingMode?: "wholesale" | "retail";
   customers: Customer[];
   products: Product[];
   productMasters: Master[];
@@ -199,6 +201,7 @@ export function SalesInvoiceForm({
     alertIfRequired = (p?: Product) => {
       const master = masterFor(p);
       if (
+        billingMode === "retail" &&
         master &&
         (master.isScheduleH1 ||
           master.isPrescriptionRequired ||
@@ -256,7 +259,7 @@ export function SalesInvoiceForm({
           .map((m) => [m.id, m]),
       ).values(),
     ),
-    complianceRequired = regulatedMasters.length > 0;
+    complianceRequired = billingMode === "retail" && regulatedMasters.length > 0;
   const calc = useMemo(() => {
     const lines = rows.map((r) => {
         const p = products.find((x) => x.id === r.productId),
@@ -344,7 +347,7 @@ export function SalesInvoiceForm({
         regulatedMasters.every((m) => acknowledgedProducts.has(m.id)),
       items: rows.map(({ productName, ...r }) => r),
     });
-    if (out) window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
+    if (out) window.location.assign(`/invoices/${encodeURIComponent(out.id)}/print?print=1`);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Unable to save invoice. Please try again.");
     }
@@ -820,12 +823,19 @@ export function SalesInvoiceForm({
         </section>
       </div>
       <footer className="sales-actions">
-        <span>
-          {calc.invalid
+        <span role="status" aria-live="polite">
+          {complianceRequired && (!head.prescriptionDoctorName.trim() || !head.prescriptionDoctorRegistration.trim())
+            ? "Retail prescription sale: enter doctor name and registration above before saving."
+            : complianceRequired && !regulatedMasters.every((m) => acknowledgedProducts.has(m.id))
+            ? "Review the prescription warning for each selected medicine before saving."
+            : !head.customerId ? "Select a customer before saving."
+            : rows.some((r) => !r.productId || r.quantity <= 0) ? "Select a batch and enter billed quantity for every row."
+            : calc.invalid
             ? "Correct stock warnings before saving."
             : `${rows.length} line(s) ready · stock will be deducted by billed + free quantity.`}
         </span>
         <Button
+          type="submit"
           disabled={
             busy ||
             calc.invalid ||
