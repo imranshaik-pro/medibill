@@ -33,6 +33,10 @@ test("rejects invalid rates and discounts", () => {
   assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], gstRate: "Infinity" }] }), /finite number/);
 });
 
+test("rejects overflowing invoice calculations", () => {
+  assert.throws(() => validateSaleFinancialInput({ ...validSale, items: [{ ...validSale.items[0], quantity: Number.MAX_SAFE_INTEGER, unitRate: 1e308 }] }), /too large/);
+});
+
 test("rejects negative charges and excessive cash discounts", () => {
   assert.throws(() => validateSaleFinancialInput({ ...validSale, freightAmount: -1 }), /at least 0/);
   assert.throws(() => validateSaleFinancialInput({ ...validSale, cashDiscount: 100 }), /cannot exceed/);
