@@ -1,4 +1,5 @@
 import type { DocumentOperation } from "./document-safety";
+import { validateSaleFinancialInput } from "./financial-validation";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
@@ -1410,6 +1411,7 @@ function words(n: number) {
 export async function addInvoice(userId: string, input: SaleInput, operation?: DocumentOperation) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
+  validateSaleFinancialInput(input);
   if (!input.items?.length) throw new Error("Add at least one product row");
   const db = getDb(),
     [customer] = await db
@@ -2755,6 +2757,7 @@ export async function updateSalesInvoice(
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
+  validateSaleFinancialInput(input);
   if (!input.items?.length) throw new Error("Add at least one product row");
   const db = getDb(),
     [current] = await db
