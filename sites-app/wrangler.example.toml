@@ -13,4 +13,6 @@ binding = "BUCKET"
 bucket_name = "medibill-production-files"
 
 [vars]
+# Agency/distributor billing. Use retail only for patient-facing dispensing.
+BILLING_MODE = "wholesale"
 GEMINI_VISION_MODEL = "gemini-3.1-flash-lite"
