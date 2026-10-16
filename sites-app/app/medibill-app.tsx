@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { draftScope } from "@/lib/invoice-drafts";
 import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
@@ -204,7 +205,7 @@ type Data = {
   billingMode?: "wholesale" | "retail";
   approvalPending?: boolean;
   tenant: { companyName: string };
-  member: { role: string; status?: string };
+  member: { id: string; tenantId: string; role: string; status?: string };
   customers: Customer[];
   productMasters: ProductMaster[];
   products: Product[];
@@ -264,7 +265,7 @@ export function MediBillApp({
   );
   // Preserve retry keys after uncertain network responses.
   const saveRequests = useRef(new Map<string,{body:string;key:string}>());
-  async function save(path: string, body: Record<string, unknown>) {
+  async function save(path: string, body: Record<string, unknown>, requestKey?: string) {
     if (
       !window.confirm(
         "Please review the entered details. Do you want to save this record?",
@@ -285,6 +286,7 @@ export function MediBillApp({
         if (fingerprint && previous?.fingerprint === fingerprint && typeof previous.key === "string") attempt = {body:serialized,key:previous.key};
       } catch { /* Storage may be disabled; in-memory retry protection remains. */ }
       if (!attempt || attempt.body !== serialized) attempt = {body:serialized,key:crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,"0")).join("")};
+      if (requestKey) attempt = {body:serialized,key:requestKey};
       saveRequests.current.set(path,attempt);
       try { if (fingerprint) sessionStorage.setItem(storageKey,JSON.stringify({fingerprint,key:attempt.key})); } catch { /* Use in-memory key. */ }
     }
@@ -1566,7 +1568,7 @@ function Entry({
   close: () => void;
   data: Data;
   busy: boolean;
-  save: (p: string, b: Record<string, unknown>) => Promise<any>;
+  save: (p: string, b: Record<string, unknown>, requestKey?: string) => Promise<any>;
 }) {
   const titles: Record<Exclude<Modal, null>, string> = {
     customer: "Add customer",
@@ -1611,12 +1613,13 @@ function Entry({
         {type === "invoice" && (
           <SalesInvoiceForm
             billingMode={data.billingMode}
+            draftScope={draftScope(data.member)}
             busy={busy}
             customers={data.customers}
             products={data.products}
             productMasters={data.productMasters}
             prior={data.invoiceLines}
-            go={(b) => save("/api/invoices", b)}
+            go={(b, key) => save("/api/invoices", b, key)}
           />
         )}{" "}
         {type === "supplier" && (

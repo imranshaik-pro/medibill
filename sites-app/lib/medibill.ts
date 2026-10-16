@@ -4,7 +4,7 @@ import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
 import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
 import { requireRestoreAdmin, validateRestoreSnapshot } from "./restore-security";
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   agencyProfiles,
@@ -1303,6 +1303,7 @@ export async function addProduct(
 }
 
 type SaleInput = {
+  expectedRevision?: string;
   customerId: string;
   invoiceType?: string;
   invoiceDate?: string;
@@ -2510,6 +2511,12 @@ export async function reviewRegistration(
   await audit(r.tenantId, userId, `registration.${status}`, r.firmName);
   return { ...r, status };
 }
+export class InvoiceEditConflict extends Error {}
+async function salesInvoiceRevision(header: Record<string, unknown>, lines: Array<Record<string, unknown>>) {
+  const stable = (row: Record<string, unknown>) => Object.fromEntries(Object.entries(row).sort(([a],[b]) => a.localeCompare(b)));
+  return sha256(JSON.stringify([stable(header), [...lines].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(stable)]));
+}
+
 export async function getSalesInvoice(userId: string, id: string) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
@@ -2546,7 +2553,9 @@ export async function getSalesInvoice(userId: string, id: string) {
       )
       .orderBy(invoiceLines.createdAt),
     profile = await getAgencyProfile(userId);
-  return { header, customer, tenant, lines, profile };
+  const editProducts = lines.length ? await db.select().from(products).where(and(
+    eq(products.tenantId, member.tenantId), inArray(products.id,[...new Set(lines.map(line=>line.productId))]))) : [];
+  return { header, customer, tenant, lines, profile, editProducts, revision: await salesInvoiceRevision(header, lines) };
 }
 
 export async function updateProductMaster(
@@ -2810,6 +2819,11 @@ export async function updateSalesInvoice(
       .filter((p): p is (typeof plist)[number] => Boolean(p)),
     masterRows,
   );
+  if (input.expectedRevision && input.expectedRevision !== await salesInvoiceRevision(current, old))
+    throw new InvoiceEditConflict("This invoice changed after you opened it. Your draft is preserved. Reload the latest invoice before applying changes.");
+  const originalIssued = new Map<string, number>();
+  for (const line of old) originalIssued.set(line.productId,
+    (originalIssued.get(line.productId) || 0) + Number(line.quantity) + Number(line.freeQuantity || 0));
   for (const x of old)
     restored.set(
       x.productId,
@@ -2922,16 +2936,18 @@ export async function updateSalesInvoice(
         ),
       ...lines.map((x) => db.insert(invoiceLines).values(x)),
     ];
-  for (const p of plist) {
-    const next = (restored.get(p.id) ?? p.stock) - (requested.get(p.id) || 0);
-    if (next !== p.stock)
-      statements.push(
-        db
-          .update(products)
-          .set({ stock: stockDelta(products.stock, next - p.stock), physicalStock: sql`MAX(0, ${products.physicalStock} + ${(next - p.stock) * (p.packMultiplier || 1)})` })
-          .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
-      );
+  for (const pid of new Set([...originalIssued.keys(), ...requested.keys()])) {
+    const p = pmap.get(pid);
+    if (!p) throw new Error("The original batch is unavailable. Refresh the invoice before editing.");
+    const delta = (originalIssued.get(pid) || 0) - (requested.get(pid) || 0);
+    // No-op/header/rate edits issue nothing. Quantity increases deduct only the
+    // extra units; decreases and removed batches release only the difference.
+    if (delta !== 0) statements.push(db.update(products).set({
+      stock: stockDelta(products.stock, delta),
+      physicalStock: sql`MAX(0, ${products.physicalStock} + ${delta * (p.packMultiplier || 1)})`,
+    }).where(and(eq(products.id,pid),eq(products.tenantId,m.tenantId))));
   }
+
   if (current.customerId === customer.id && oldDue !== newDue)
     statements.push(
       db
