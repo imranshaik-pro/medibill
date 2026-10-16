@@ -51,6 +51,8 @@ export async function requestVision(
         if(typeof token==="string" && ["INTERNAL","UNAVAILABLE","DEADLINE_EXCEEDED","RESOURCE_EXHAUSTED","INVALID_ARGUMENT","NOT_FOUND","PERMISSION_DENIED","UNAUTHENTICATED","FAILED_PRECONDITION","api_error","service_unavailable","deadline_exceeded","rate_limit_exceeded","insufficient_quota"].includes(token))providerStatus=token;
       } catch { /* A gateway may return HTML instead of JSON. */ }
       const detail = ` Provider HTTP ${status}${providerStatus?" ("+providerStatus+")":""}.`;
+      if (status === 400 && providerStatus === "FAILED_PRECONDITION")
+        throw new VisionRequestError("VISION_PROVIDER_PREREQUISITE", "The vision provider requires an account or project prerequisite. Ask the administrator to check the API project's billing and region eligibility. Re-uploading the same images will not resolve this. Manual entry remains available."+detail,503,status,providerStatus);
       if (status === 429) throw new VisionRequestError("VISION_RATE_LIMITED", "The vision API quota or request limit was reached. Please wait before retrying; the administrator may need to check API quota."+detail, 429,status,providerStatus);
       if (status === 504) throw new VisionRequestError("VISION_PROVIDER_TIMEOUT", "The vision provider could not process these images within its deadline."+detail,504,status,providerStatus);
       if (status === 500) throw new VisionRequestError("VISION_PROVIDER_ERROR", "The vision provider encountered an internal error."+detail,502,status,providerStatus);

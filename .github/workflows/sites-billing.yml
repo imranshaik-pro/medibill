@@ -1,0 +1,29 @@
+name: Sites billing regressions
+on:
+  pull_request:
+    paths: ['sites-app/**', '.github/workflows/sites-billing.yml']
+  push:
+    branches: [main, sites-v34-fullstack-sync]
+    paths: ['sites-app/**', '.github/workflows/sites-billing.yml']
+permissions:
+  contents: read
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sites-app
+    env:
+      CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:billing
+      - run: npm run build

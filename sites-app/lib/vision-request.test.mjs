@@ -46,3 +46,14 @@ test('does not surface arbitrary provider error tokens',async()=>{
   assert.equal(error.providerStatus,undefined);assert.equal(error.upstreamStatus,400);assert.ok(!error.message.includes('private-secret'));return true;
  });
 });
+
+
+test('classifies provider prerequisites without retry or exposing account details', async()=>{
+ let calls=0;
+ await assert.rejects(requestVision(async()=>{calls++;return Response.json({error:{status:'FAILED_PRECONDITION',message:'PRIVATE PROJECT ACCOUNT'}},{status:400})},noWait),error=>{
+  assert.equal(error.code,'VISION_PROVIDER_PREREQUISITE');assert.equal(error.upstreamStatus,400);
+  assert.match(error.message,/billing and region eligibility/);assert(!error.message.includes('PRIVATE'));
+  return true;
+ });
+ assert.equal(calls,1);
+});
