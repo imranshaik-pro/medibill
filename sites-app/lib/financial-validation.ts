@@ -73,10 +73,14 @@ export function validateSaleFinancialInput(input: unknown): void {
     const quantity = readFiniteNumber(item.quantity, `quantity in row ${index + 1}`, { min: 1, integer: true });
     const rate = readFiniteNumber(item.unitRate, `unit rate in row ${index + 1}`, { min: 0, positive: true });
     const discountPercent = readFiniteNumber(item.discountPercent, `discount percent in row ${index + 1}`, { optional: true, defaultValue: 0, min: 0, max: 100 });
-    const gross = Math.round((quantity * rate + Number.EPSILON) * 100) / 100;
+    const rawGross = quantity * rate;
+    if (!Number.isFinite(rawGross)) throw new Error(`Invoice value in row ${index + 1} is too large`);
+    const gross = Math.round((rawGross + Number.EPSILON) * 100) / 100;
+    if (!Number.isFinite(gross)) throw new Error(`Invoice value in row ${index + 1} is too large`);
     const lineDiscount = Math.round((gross * discountPercent / 100 + Number.EPSILON) * 100) / 100;
     return sum + Math.round((gross - lineDiscount + Number.EPSILON) * 100) / 100;
   }, 0) + freight + insurance;
+  if (!Number.isFinite(taxableBeforeCashDiscount)) throw new Error("Invoice total is too large");
   const appliedCashDiscount = discountType === "percent"
     ? taxableBeforeCashDiscount * cashDiscount / 100
     : cashDiscount;
