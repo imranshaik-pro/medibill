@@ -7,6 +7,7 @@ on:
       - "sites-app/lib/financial-validation.ts"
       - "sites-app/lib/medibill.ts"
       - "sites-app/tests/financial-validation.test.mjs"
+      - "sites-app/tests/stock-concurrency.test.mjs"
       - "sites-app/package.json"
       - "sites-app/package-lock.json"
       - ".github/workflows/sites-app-validation.yml"
