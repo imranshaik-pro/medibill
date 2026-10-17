@@ -1565,7 +1565,7 @@ function Entry({
   close: () => void;
   data: Data;
   busy: boolean;
-  save: (p: string, b: Record<string, unknown>) => Promise<any>;
+  save: (p: string, b: Record<string, unknown>) => Promise<unknown>;
 }) {
   const titles: Record<Exclude<Modal, null>, string> = {
     customer: "Add customer",
