@@ -374,7 +374,7 @@ export function SalesInvoiceForm({
       complianceAcknowledged:
         complianceRequired &&
         regulatedMasters.every((m) => acknowledgedProducts.has(m.id)),
-      items: rows.map(({ productName, ...r }) => r),
+      items: rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "productName"))),
     });
     if (out) window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
     } catch (error) {
