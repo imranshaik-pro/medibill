@@ -13,10 +13,11 @@ try {
  const db=drizzle(DB);
  globalThis.__stockEnv={DB};globalThis.__stockGetDb=()=>db;
 
- for(const src of ['db/schema.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
+ for(const src of ['db/schema.ts','lib/financial-validation.ts','lib/sales-ledger.ts','lib/invoice-stock-plan.ts','lib/stock-delta-validation.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
   let text=fs.readFileSync(root+src,'utf8');
   text=text.replace('import { env } from "cloudflare:workers";','const env=globalThis.__stockEnv;')
     .replace('import { getDb } from "@/db";','const getDb=globalThis.__stockGetDb;')
+    .replaceAll('"./financial-validation"','"./financial-validation.mjs"').replaceAll('"./sales-ledger"','"./sales-ledger.mjs"').replaceAll('"./invoice-stock-plan"','"./invoice-stock-plan.mjs"').replaceAll('"./stock-delta-validation"','"./stock-delta-validation.mjs"')
     .replaceAll('"./invoice-deletion"','"./invoice-deletion.mjs"')
     .replaceAll('"@/db/schema"','"./schema.mjs"').replaceAll('"../db/schema"','"./schema.mjs"')
     .replaceAll('"./stock-concurrency"','"./stock-concurrency.mjs"').replaceAll('"./customer-update"','"./customer-update.mjs"').replaceAll('"./restore-security"','"./restore-security.mjs"');
