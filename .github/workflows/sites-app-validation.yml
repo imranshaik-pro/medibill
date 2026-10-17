@@ -1,0 +1,89 @@
+name: MediBill Sites App Financial Validation
+
+on:
+  pull_request:
+    branches: [sites-v34-fullstack-sync]
+    paths:
+      - "sites-app/lib/financial-validation.ts"
+      - "sites-app/lib/sales-ledger.ts"
+      - "sites-app/lib/medibill.ts"
+      - "sites-app/tests/financial-validation.test.mjs"
+      - "sites-app/tests/stock-concurrency.test.mjs"
+      - "sites-app/tests/sales-ledger.test.mjs"
+      - "sites-app/package.json"
+      - "sites-app/package-lock.json"
+      - ".github/workflows/sites-app-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  financial-validation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+      - name: Run sales financial validation tests
+        run: npm run test:financial-validation
+
+  focused-validation-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Lint the new financial validation module
+        run: npx eslint lib/financial-validation.ts
+
+  full-project-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Run full-project ESLint
+        run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Build Sites App
+        run: npm run build
