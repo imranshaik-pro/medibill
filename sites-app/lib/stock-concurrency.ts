@@ -1,12 +1,13 @@
+import { assertValidBalanceDelta, assertValidStockDelta } from "./stock-delta-validation";
 import { getTableColumns, sql, type SQL } from "drizzle-orm";
 import { auditLogs } from "../db/schema";
 
 export function stockDelta(column: any, delta: number) {
-  if (!Number.isSafeInteger(delta)) throw new Error("Stock quantities must be whole units");
+  assertValidStockDelta(delta);
   return sql`CASE WHEN ${column} + ${delta} >= 0 THEN ${column} + ${delta} ELSE NULL END`;
 }
 export function balanceDelta(column: any, delta: number) {
-  if (!Number.isFinite(delta)) throw new Error("Invalid balance amount");
+  assertValidBalanceDelta(delta);
   return sql`ROUND(MAX(0, ${column} + ${delta}), 2)`;
 }
 function both(parts: SQL[]): SQL {
