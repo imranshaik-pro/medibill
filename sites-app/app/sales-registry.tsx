@@ -8,9 +8,11 @@ type Props={data:RegistryData;newInvoice:()=>void;changed:()=>void;notify:(s:str
 export function SalesRegistry({data,newInvoice,changed,notify,initialSearch=""}:Props){const[q,setQ]=useState(initialSearch);useEffect(()=>setQ(initialSearch),[initialSearch]);const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);const [deleted,setDeleted]=useState<Set<string>>(new Set());const canDelete=["admin","super_admin"].includes(data.member?.role);const[id,setId]=useState<string|null>(null),[detail,setDetail]=useState<InvoiceDetail|null>(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);async function edit(invoiceId:string) {
   setId(invoiceId); setDetail(null); setLoading(true);
   try {
-    const r=await fetch(`/api/invoices/${invoiceId}`), out:any=await r.json();
+    const r=await fetch(`/api/invoices/${invoiceId}`);
+    const out=await r.json() as {error?:string;header?:InvoiceHeader;lines?:InvoiceLine[]};
     if(!r.ok) throw new Error(out.error || "Unable to load invoice");
-    setDetail(out);
+    if(!out.header || !Array.isArray(out.lines)) throw new Error("Invoice response is incomplete");
+    setDetail({header:out.header,lines:out.lines});
   } catch(error) {
     notify(error instanceof Error ? error.message : "Unable to load invoice");
     setId(null);
@@ -21,8 +23,10 @@ async function update(body:Record<string,unknown>) {
   if(!confirm("Are you sure you want to update this invoice? Stock balances will be reversed and adjusted.")) return;
   setBusy(true);
   try {
-    const r=await fetch(`/api/invoices/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(body)}), out:any=await r.json();
+    const r=await fetch(`/api/invoices/${id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    const out=await r.json() as {error?:string;header?:{invoiceNo?:string;id?:string}};
     if(!r.ok) throw new Error(out.error || "Unable to update invoice");
+    if(!out.header?.invoiceNo || !out.header.id) throw new Error("Updated invoice response is incomplete");
     notify(`Sales Invoice ${out.header.invoiceNo} updated successfully`);
     setId(null); setDetail(null); changed();
     return {id:out.header.id};
