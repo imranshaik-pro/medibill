@@ -3116,8 +3116,8 @@ export async function replacePurchaseInward(
       statements.push(db.insert(productMasters).values(master));
     }
     const key = `${x.productName}|${x.pack}|${x.batch}`.toUpperCase();
-    let product = productByKey.get(key),
-      multiplier = packMultiplier(x.pack),
+    let product = productByKey.get(key);
+    const multiplier = packMultiplier(x.pack),
       received = billed + free,
       taxable = money2(billed * rate),
       gstAmount = money2((taxable * gstRate) / 100),
