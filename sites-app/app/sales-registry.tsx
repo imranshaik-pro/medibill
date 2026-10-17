@@ -1,11 +1,11 @@
 "use client";
 import {InvoiceDeleteDialog,type DeleteTarget} from "@/app/invoice-delete-dialog";
-import{useEffect,useState}from"react";import{Eye,Pencil,Plus,Trash2}from"lucide-react";import{Button}from"@/components/ui/button";import{Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle}from"@/components/ui/dialog";import{SalesInvoiceForm,type Customer,type Product,type Master,type Prior,type InvoiceHeader,type InvoiceLine}from"@/app/sales-invoice-form";
+import{useState}from"react";import{useSyncedState}from"@/app/use-synced-state";import{Eye,Pencil,Plus,Trash2}from"lucide-react";import{Button}from"@/components/ui/button";import{Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle}from"@/components/ui/dialog";import{SalesInvoiceForm,type Customer,type Product,type Master,type Prior,type InvoiceHeader,type InvoiceLine}from"@/app/sales-invoice-form";
 type InvoiceRow={id:string;invoiceNo:string;customerName:string;invoiceDate:string;amount:number;status:string};
 type RegistryData={invoices:InvoiceRow[];member?:{role?:string}|null;customers:Customer[];products:Product[];productMasters:Master[];invoiceLines:Prior[]};
 type InvoiceDetail={header:InvoiceHeader;lines:InvoiceLine[]};
 type Props={data:RegistryData;newInvoice:()=>void;changed:()=>void;notify:(s:string)=>void;initialSearch?:string};const money=(n:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(n);
-export function SalesRegistry({data,newInvoice,changed,notify,initialSearch=""}:Props){const[q,setQ]=useState(initialSearch);useEffect(()=>setQ(initialSearch),[initialSearch]);const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);const [deleted,setDeleted]=useState<Set<string>>(new Set());const canDelete=["admin","super_admin"].includes(data.member?.role);const[id,setId]=useState<string|null>(null),[detail,setDetail]=useState<InvoiceDetail|null>(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);async function edit(invoiceId:string) {
+export function SalesRegistry({data,newInvoice,changed,notify,initialSearch=""}:Props){const[q,setQ]=useSyncedState(initialSearch);const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);const [deleted,setDeleted]=useState<Set<string>>(new Set());const canDelete=["admin","super_admin"].includes(data.member?.role);const[id,setId]=useState<string|null>(null),[detail,setDetail]=useState<InvoiceDetail|null>(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);async function edit(invoiceId:string) {
   setId(invoiceId); setDetail(null); setLoading(true);
   try {
     const r=await fetch(`/api/invoices/${invoiceId}`);
