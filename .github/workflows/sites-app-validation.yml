@@ -10,6 +10,11 @@ on:
       - "sites-app/lib/invoice-stock-plan.ts"
       - "sites-app/lib/stock-delta-validation.ts"
       - "sites-app/lib/stock-concurrency.ts"
+      - "sites-app/lib/document-safety.ts"
+      - "sites-app/lib/invoice-deletion.ts"
+      - "sites-app/lib/customer-update.ts"
+      - "sites-app/scripts/test-stock-concurrency.mjs"
+      - "sites-app/scripts/test-document-safety.mjs"
       - "sites-app/tests/financial-validation.test.mjs"
       - "sites-app/tests/stock-concurrency.test.mjs"
       - "sites-app/tests/sales-ledger.test.mjs"
@@ -38,6 +43,10 @@ jobs:
         run: npm run install:ci
       - name: Run sales financial validation and ledger regression tests
         run: npm run test:financial-validation
+      - name: Run database-backed stock concurrency regressions
+        run: node scripts/test-stock-concurrency.mjs
+      - name: Run database-backed document safety regressions
+        run: node scripts/test-document-safety.mjs
 
   focused-validation-lint:
     runs-on: ubuntu-latest
