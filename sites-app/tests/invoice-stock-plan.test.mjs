@@ -40,7 +40,7 @@ test("rejects edits whose total requested stock exceeds restored availability", 
   ), /only 4 available/);
 });
 
-test("rejects missing product batches and invalid unit quantities", () => {
+test("rejects missing requested batches and invalid new quantities", () => {
   assert.throws(() => planInvoiceStockTransition(
     products, [], [{ productId: "missing", quantity: 1, freeQuantity: 0 }],
   ), /Selected batch no longer exists/);
@@ -50,4 +50,46 @@ test("rejects missing product batches and invalid unit quantities", () => {
   assert.throws(() => planInvoiceStockTransition(
     products, [], [{ productId: "p1", quantity: 1, freeQuantity: -1 }],
   ), /whole billed units/);
+});
+
+test("rejects corrupted current stock before planning any edit", () => {
+  for (const stock of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => planInvoiceStockTransition(
+      [{ id: "p1", name: "Medicine A", batch: "B-1", stock }],
+      [],
+      [{ productId: "p1", quantity: 1 }],
+    ), /invalid current stock/);
+  }
+});
+
+test("rejects an old invoice line whose batch no longer exists", () => {
+  assert.throws(() => planInvoiceStockTransition(
+    products,
+    [{ productId: "deleted-batch", quantity: 2, freeQuantity: 0 }],
+    [{ productId: "p1", quantity: 1 }],
+  ), /existing invoice batch no longer exists/);
+});
+
+test("rejects invalid historical quantities and unsafe restoration totals", () => {
+  assert.throws(() => planInvoiceStockTransition(
+    products,
+    [{ productId: "p1", quantity: 1.25, freeQuantity: 0 }],
+    [{ productId: "p1", quantity: 1 }],
+  ), /invalid stock quantities/);
+  assert.throws(() => planInvoiceStockTransition(
+    [{ id: "p1", name: "Medicine A", batch: "B-1", stock: Number.MAX_SAFE_INTEGER }],
+    [{ productId: "p1", quantity: 1, freeQuantity: 0 }],
+    [{ productId: "p1", quantity: 1 }],
+  ), /too large to restore safely/);
+});
+
+test("rejects duplicate inventory identifiers instead of overwriting a batch", () => {
+  assert.throws(() => planInvoiceStockTransition(
+    [
+      { id: "p1", name: "Medicine A", batch: "B-1", stock: 5 },
+      { id: "p1", name: "Medicine A", batch: "B-2", stock: 10 },
+    ],
+    [],
+    [{ productId: "p1", quantity: 1 }],
+  ), /duplicate batch identifier/);
 });
