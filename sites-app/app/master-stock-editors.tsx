@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useSyncedState } from "@/app/use-synced-state";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
