@@ -124,7 +124,7 @@ export async function importInventoryRates(db: D1Database, member: Member | null
   if (!plan.updates.length) return { ...plan, planHash, applied: true, updated: 0, message: 'No safe rate changes available; review the report.' };
   const backup = await beforeUpdate();
   // D1 batch is atomic. A NOT NULL audit guard aborts all changes on any stale input.
-  const sourceSnapshot = JSON.stringify(inventory.results.map(({ master_name, ...p }) => p));
+  const sourceSnapshot = JSON.stringify(inventory.results.map(p => Object.fromEntries(Object.entries(p).filter(([key]) => key !== "master_name"))));
   const masterSnapshot = JSON.stringify(masters.results);
   const details = JSON.stringify({ sourceFile: body.sourceFile, updates: plan.updates, summary: plan.summary, planHash });
   const conjunction = (parts: string[]): string => parts.length <= 1 ? (parts[0] || '1') : `(${conjunction(parts.slice(0,parts.length >> 1))} AND ${conjunction(parts.slice(parts.length >> 1))})`;
