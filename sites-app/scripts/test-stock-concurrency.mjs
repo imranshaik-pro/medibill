@@ -15,10 +15,11 @@ try {
  globalThis.__stockEnv={DB};globalThis.__stockGetDb=()=>db;
  // Isolate stock races from the separate, still-pending invoice-number allocator.
  let seq=0;globalThis.__stockNumber=async(_db,_tenant,_kind,prefix)=>prefix+String(++seq).padStart(4,'0');
- for(const src of ['db/schema.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts']) {
+ for(const src of ['db/schema.ts','lib/financial-validation.ts','lib/sales-ledger.ts','lib/invoice-stock-plan.ts','lib/stock-delta-validation.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts']) {
   let text=fs.readFileSync(root+src,'utf8');
   text=text.replace('import { env } from "cloudflare:workers";','const env=globalThis.__stockEnv;')
     .replace('import { getDb } from "@/db";','const getDb=globalThis.__stockGetDb;')
+    .replaceAll('"./financial-validation"','"./financial-validation.mjs"').replaceAll('"./sales-ledger"','"./sales-ledger.mjs"').replaceAll('"./invoice-stock-plan"','"./invoice-stock-plan.mjs"').replaceAll('"./stock-delta-validation"','"./stock-delta-validation.mjs"')
     .replace('import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";','const nextDocumentNumber=globalThis.__stockNumber; const deleteInvoiceRecord=()=>{throw new Error("unused")};')
     .replaceAll('"@/db/schema"','"./schema.mjs"').replaceAll('"../db/schema"','"./schema.mjs"')
     .replaceAll('"./stock-concurrency"','"./stock-concurrency.mjs"').replaceAll('"./customer-update"','"./customer-update.mjs"').replaceAll('"./restore-security"','"./restore-security.mjs"');
