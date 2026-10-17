@@ -57,7 +57,7 @@ jobs:
       - name: Install Sites App dependencies
         run: npm run install:ci
       - name: Lint the financial validation and ledger modules
-        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts lib/invoice-stock-plan.ts lib/stock-delta-validation.ts lib/stock-concurrency.ts
+        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts lib/invoice-stock-plan.ts lib/stock-delta-validation.ts
 
   full-project-lint:
     runs-on: ubuntu-latest
