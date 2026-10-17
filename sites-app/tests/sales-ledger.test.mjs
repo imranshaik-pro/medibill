@@ -37,10 +37,7 @@ test("changing the customer on a paid invoice leaves both outstanding balances u
   assert.deepEqual(deriveInvoiceBalanceDeltas({
     oldCustomerId: "customer-a", newCustomerId: "customer-b",
     oldStatus: "Paid", oldAmount: 100, newStatus: "Paid", newAmount: 125,
-  }), [
-    { customerId: "customer-a", delta: -0 },
-    { customerId: "customer-b", delta: 0 },
-  ]);
+  }), []);
 });
 
 test("rejects non-finite invoice amounts before creating balance deltas", () => {
