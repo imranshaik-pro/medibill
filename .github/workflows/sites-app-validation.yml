@@ -7,9 +7,11 @@ on:
       - "sites-app/lib/financial-validation.ts"
       - "sites-app/lib/sales-ledger.ts"
       - "sites-app/lib/medibill.ts"
+      - "sites-app/lib/invoice-stock-plan.ts"
       - "sites-app/tests/financial-validation.test.mjs"
       - "sites-app/tests/stock-concurrency.test.mjs"
       - "sites-app/tests/sales-ledger.test.mjs"
+      - "sites-app/tests/invoice-stock-plan.test.mjs"
       - "sites-app/package.json"
       - "sites-app/package-lock.json"
       - ".github/workflows/sites-app-validation.yml"
@@ -52,7 +54,7 @@ jobs:
       - name: Install Sites App dependencies
         run: npm run install:ci
       - name: Lint the financial validation and ledger modules
-        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts
+        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts lib/invoice-stock-plan.ts
 
   full-project-lint:
     runs-on: ubuntu-latest
