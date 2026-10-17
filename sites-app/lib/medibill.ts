@@ -2153,7 +2153,15 @@ export async function getBackupFile(userId: string, id: string) {
   if (!row) throw new Error("Backup not found");
   const object = await env.BUCKET.get(row.objectKey);
   if (!object) throw new Error("Backup file is missing");
-  return { row, object };
+  const body = await object.text();
+  if (await sha256(body) !== row.checksum)
+    throw new Error("Backup integrity verification failed. Do not restore this file; create a fresh backup or contact support.");
+  return {
+    row,
+    object: new Response(body, {
+      headers: { "content-type": "application/json" },
+    }),
+  };
 }
 export const validateBackupPayload = validateRestoreSnapshot;
 export async function restoreFullBackup(
