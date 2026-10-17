@@ -28,7 +28,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
-      - name: Run sales financial validation tests
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Run sales financial validation and ledger regression tests
         run: npm run test:financial-validation
 
   focused-validation-lint:
@@ -47,7 +51,7 @@ jobs:
           cache-dependency-path: sites-app/package-lock.json
       - name: Install Sites App dependencies
         run: npm run install:ci
-      - name: Lint the new financial validation module
+      - name: Lint the financial validation and ledger modules
         run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts
 
   full-project-lint:
