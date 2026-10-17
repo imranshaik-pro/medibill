@@ -23,7 +23,7 @@ export function deriveInvoiceBalanceDeltas(input: {
     return [
       { customerId: oldCustomerId, delta: -oldDue },
       { customerId: input.newCustomerId, delta: newDue },
-    ];
+    ].filter((entry) => entry.delta !== 0);
   }
   return [{ customerId: input.newCustomerId, delta: newDue - oldDue }];
 }
