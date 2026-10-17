@@ -5,9 +5,11 @@ on:
     branches: [sites-v34-fullstack-sync]
     paths:
       - "sites-app/lib/financial-validation.ts"
+      - "sites-app/lib/sales-ledger.ts"
       - "sites-app/lib/medibill.ts"
       - "sites-app/tests/financial-validation.test.mjs"
       - "sites-app/tests/stock-concurrency.test.mjs"
+      - "sites-app/tests/sales-ledger.test.mjs"
       - "sites-app/package.json"
       - "sites-app/package-lock.json"
       - ".github/workflows/sites-app-validation.yml"
@@ -46,7 +48,7 @@ jobs:
       - name: Install Sites App dependencies
         run: npm run install:ci
       - name: Lint the new financial validation module
-        run: npx eslint lib/financial-validation.ts
+        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts
 
   full-project-lint:
     runs-on: ubuntu-latest
