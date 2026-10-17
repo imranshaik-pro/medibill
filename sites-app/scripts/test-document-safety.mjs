@@ -25,6 +25,18 @@ try {
  }
  const api=await import(pathToFileURL(temp+'/medibill.mjs'));
 
+ // Verify backup downloads fail closed when the stored bytes do not match the recorded checksum.
+ const backupBody=JSON.stringify({format:'medibill-pro-backup',tenantId:'A'});
+ const digest=async(body)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ await DB.prepare("INSERT INTO backup_records(id,tenant_id,file_name,object_key,kind,size_bytes,checksum,product_count,purchase_count,sales_count,batch_count,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+  .bind('BK','A','backup.json','backups/A/BK.json','manual',new TextEncoder().encode(backupBody).byteLength,await digest(backupBody),1,0,0,1,'U',0).run();
+ globalThis.__stockEnv.BUCKET={get:async()=>({text:async()=>backupBody})};
+ const verified=await api.getBackupFile('U','BK');
+ assert.equal(await verified.object.text(),backupBody);
+ globalThis.__stockEnv.BUCKET={get:async()=>({text:async()=>backupBody+'tampered'})};
+ await assert.rejects(api.getBackupFile('U','BK'),/integrity verification failed/);
+ delete globalThis.__stockEnv.BUCKET;
+
  const {runDocumentRequest}=await import(pathToFileURL(temp+'/document-safety.mjs'));
  const {nextDocumentNumber}=await import(pathToFileURL(temp+'/invoice-deletion.mjs'));
  const member={id:'U',tenantId:'A',status:'active'};
