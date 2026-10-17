@@ -1,5 +1,6 @@
 import type { DocumentOperation } from "./document-safety";
 import { validateSaleFinancialInput } from "./financial-validation";
+import { deriveInvoiceBalanceDeltas } from "./sales-ledger";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
@@ -2902,8 +2903,14 @@ export async function updateSalesInvoice(
     amount = Math.round(net),
     roundOff = money2(amount - net),
     status = input.status || current.status,
-    oldDue = current.status === "Paid" ? 0 : current.amount,
-    newDue = status === "Paid" ? 0 : amount,
+    balanceDeltas = deriveInvoiceBalanceDeltas({
+      oldCustomerId: current.customerId,
+      newCustomerId: customer.id,
+      oldStatus: current.status,
+      oldAmount: current.amount,
+      newStatus: status,
+      newAmount: amount,
+    }),
     statements = [
       db
         .delete(invoiceLines)
@@ -2925,26 +2932,18 @@ export async function updateSalesInvoice(
           .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
       );
   }
-  if (current.customerId === customer.id && oldDue !== newDue)
+  for (const delta of balanceDeltas) {
+    if (delta.delta === 0) continue;
     statements.push(
       db
         .update(customers)
-        .set({
-          outstanding: balanceDelta(customers.outstanding, newDue - oldDue),
-        })
+        .set({ outstanding: balanceDelta(customers.outstanding, delta.delta) })
         .where(
           and(
-            eq(customers.id, customer.id),
+            eq(customers.id, delta.customerId),
             eq(customers.tenantId, m.tenantId),
           ),
         ),
-    );
-  if (current.customerId !== customer.id) {
-    statements.push(
-      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, -oldDue)})
-        .where(and(eq(customers.id, current.customerId), eq(customers.tenantId, m.tenantId))),
-      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, newDue)})
-        .where(and(eq(customers.id, customer.id), eq(customers.tenantId, m.tenantId))),
     );
   }
   statements.push(
