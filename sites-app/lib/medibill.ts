@@ -150,7 +150,7 @@ async function onlineRegistryLookup(
       .filter((x) => x && typeof x === "object")
       .slice(0, 20)
       .map((x: RegistryRecord) => {
-        const a = x.pradr?.addr || x.address_details || {};
+        const principal = registryRecord(x.pradr);\n        const a = registryRecord(principal.addr || x.address_details);
         return {
           partyType: "all",
           source: "online-registry",
