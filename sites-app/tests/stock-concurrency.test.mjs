@@ -9,9 +9,9 @@ test("stock delta validation rejects fractional and non-finite quantities", () =
 });
 
 test("stock delta validation accepts whole-unit deltas", () => {
-  assert.ok(assertValidStockDelta(-3));
-  assert.ok(assertValidStockDelta(0));
-  assert.ok(assertValidStockDelta(4));
+  assert.doesNotThrow(() => assertValidStockDelta(-3));
+  assert.doesNotThrow(() => assertValidStockDelta(0));
+  assert.doesNotThrow(() => assertValidStockDelta(4));
 });
 
 test("customer balance validation rejects non-finite deltas", () => {
@@ -21,7 +21,7 @@ test("customer balance validation rejects non-finite deltas", () => {
 });
 
 test("customer balance validation accepts finite invoice and reversal deltas", () => {
-  assert.ok(assertValidBalanceDelta(125.5));
-  assert.ok(assertValidBalanceDelta(-125.5));
-  assert.ok(assertValidBalanceDelta(0));
+  assert.doesNotThrow(() => assertValidBalanceDelta(125.5));
+  assert.doesNotThrow(() => assertValidBalanceDelta(-125.5));
+  assert.doesNotThrow(() => assertValidBalanceDelta(0));
 });
