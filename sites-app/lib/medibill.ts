@@ -1,4 +1,7 @@
 import type { DocumentOperation } from "./document-safety";
+import { validateSaleFinancialInput } from "./financial-validation";
+import { deriveInvoiceBalanceDeltas } from "./sales-ledger";
+import { planInvoiceStockTransition } from "./invoice-stock-plan";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
@@ -62,25 +65,28 @@ type LookupBindings = typeof env & {
 };
 const clean = (value: unknown) =>
   typeof value === "string" ? value.trim() : value == null ? "" : String(value);
-function registryRows(raw: Record<string, any>) {
-  const body = raw.data?.data ?? raw.data ?? raw.result ?? raw.results ?? raw;
-  return Array.isArray(body)
-    ? body
-    : Array.isArray(body?.results)
-      ? body.results
-      : [body];
+type RegistryRecord = Record<string, unknown>;
+type BatchStatement = Parameters<ReturnType<typeof getDb>["batch"]>[0][number];
+function registryRecord(value: unknown): RegistryRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as RegistryRecord : {};
 }
-function registryAddress(x: Record<string, any>) {
-  const a = x.pradr?.addr || x.principal_address || x.address_details || {};
-  return clean(
-    x.address ||
-      x.full_address ||
-      x.pradr?.adr ||
-      [a.flno, a.bno, a.bnm, a.st, a.loc, a.dst, a.stcd, a.pncd]
-        .map(clean)
-        .filter(Boolean)
-        .join(", "),
-  );
+function registryList(value: unknown): RegistryRecord[] {
+  return Array.isArray(value)
+    ? value.filter((item) => item !== null && typeof item === "object" && !Array.isArray(item)).map(registryRecord)
+    : [];
+}
+function registryRows(raw: RegistryRecord): RegistryRecord[] {
+  const data = registryRecord(raw.data);
+  const body = data.data ?? raw.data ?? raw.result ?? raw.results ?? raw;
+  if (Array.isArray(body)) return registryList(body);
+  const nested = registryRecord(body);
+  return Array.isArray(nested.results) ? registryList(nested.results) : [nested];
+}
+function registryAddress(x: RegistryRecord) {
+  const principal = registryRecord(x.pradr);
+  const a = registryRecord(principal.addr || x.principal_address || x.address_details);
+  return clean(x.address || x.full_address || principal.adr ||
+    [a.flno, a.bno, a.bnm, a.st, a.loc, a.dst, a.stcd, a.pncd].map(clean).filter(Boolean).join(", "));
 }
 async function onlineRegistryLookup(
   query: string,
@@ -137,14 +143,15 @@ async function onlineRegistryLookup(
       throw new Error(
         `Online registry is temporarily unavailable (${response.status}).`,
       );
-    const raw = (await response.json()) as Record<string, any>,
+    const raw = (await response.json()) as RegistryRecord,
       verifiedAt = new Date().toISOString(),
       registry = clean(raw.provider || raw.registry || url.hostname);
     const results = registryRows(raw)
       .filter((x) => x && typeof x === "object")
       .slice(0, 20)
-      .map((x: Record<string, any>) => {
-        const a = x.pradr?.addr || x.address_details || {};
+      .map((x: RegistryRecord) => {
+        const principal = registryRecord(x.pradr);
+        const a = registryRecord(principal.addr || x.address_details);
         return {
           partyType: "all",
           source: "online-registry",
@@ -171,7 +178,7 @@ async function onlineRegistryLookup(
           city: clean(x.city || x.location || a.loc || a.dst),
           state: clean(x.state || x.stateName || a.stcd),
           stateCode: clean(
-            x.stateCode || x.state_code || (x.gstin || query).slice(0, 2),
+            x.stateCode || x.state_code || clean(x.gstin || query).slice(0, 2),
           ),
           pinCode: clean(x.pinCode || x.pincode || a.pncd),
           registrationStatus: clean(
@@ -1249,7 +1256,7 @@ export async function addProduct(
       cautionNotes,
       createdAt: now,
     },
-    statements: any[] = [getDb().insert(productMasters).values(row)];
+    statements: BatchStatement[] = [getDb().insert(productMasters).values(row)];
   if (input.batch?.trim() && input.pack?.trim()) {
     const match = String(input.expiry || "").match(/^(\d{2})[\/-](\d{4})$/),
       expiry = match ? `${match[2]}-${match[1]}` : String(input.expiry || "");
@@ -1410,6 +1417,7 @@ function words(n: number) {
 export async function addInvoice(userId: string, input: SaleInput, operation?: DocumentOperation) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
+  validateSaleFinancialInput(input);
   if (!input.items?.length) throw new Error("Add at least one product row");
   const db = getDb(),
     [customer] = await db
@@ -2145,7 +2153,15 @@ export async function getBackupFile(userId: string, id: string) {
   if (!row) throw new Error("Backup not found");
   const object = await env.BUCKET.get(row.objectKey);
   if (!object) throw new Error("Backup file is missing");
-  return { row, object };
+  const body = await object.text();
+  if (await sha256(body) !== row.checksum)
+    throw new Error("Backup integrity verification failed. Do not restore this file; create a fresh backup or contact support.");
+  return {
+    row,
+    object: new Response(body, {
+      headers: { "content-type": "application/json" },
+    }),
+  };
 }
 export const validateBackupPayload = validateRestoreSnapshot;
 export async function restoreFullBackup(
@@ -2183,7 +2199,7 @@ export async function restoreFullBackup(
       db.delete(customers).where(eq(customers.tenantId, m.tenantId)),
       db.delete(suppliers).where(eq(suppliers.tenantId, m.tenantId)),
     ];
-  const ins: any[] = [];
+  const ins: BatchStatement[] = [];
   for (const r of x.customers) ins.push(db.insert(customers).values(r));
   for (const r of x.suppliers) ins.push(db.insert(suppliers).values(r));
   for (const r of x.productMasters)
@@ -2448,7 +2464,7 @@ export async function reviewRegistration(
   const status = decision === "approved" ? "approved" : "denied",
     userStatus = decision === "approved" ? "active" : "denied",
     now = Date.now(),
-    statements: any[] = [
+    statements: BatchStatement[] = [
       db
         .update(firmRegistrations)
         .set({ status, reviewedBy: userId, reviewedAt: now })
@@ -2755,6 +2771,7 @@ export async function updateSalesInvoice(
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
+  validateSaleFinancialInput(input);
   if (!input.items?.length) throw new Error("Add at least one product row");
   const db = getDb(),
     [current] = await db
@@ -2792,7 +2809,16 @@ export async function updateSalesInvoice(
       .from(products)
       .where(eq(products.tenantId, m.tenantId)),
     pmap = new Map(plist.map((p) => [p.id, p])),
-    restored = new Map(plist.map((p) => [p.id, p.stock]));
+    stockPlan = planInvoiceStockTransition(
+      plist,
+      old,
+      input.items.map((item) => ({
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        freeQuantity: Number(item.freeQuantity || 0),
+      })),
+    ),
+    restored = stockPlan.restored;
   const complianceRequired = enforcePrescriptionCompliance(
     input,
     input.items
@@ -2800,32 +2826,6 @@ export async function updateSalesInvoice(
       .filter((p): p is (typeof plist)[number] => Boolean(p)),
     masterRows,
   );
-  for (const x of old)
-    restored.set(
-      x.productId,
-      (restored.get(x.productId) || 0) + x.quantity + x.freeQuantity,
-    );
-  for (const x of input.items) {
-    if (!Number.isSafeInteger(Number(x.quantity)) || Number(x.quantity) <= 0 || !Number.isSafeInteger(Number(x.freeQuantity || 0)) || Number(x.freeQuantity || 0) < 0)
-      throw new Error("Enter positive whole billed units and nonnegative whole free units");
-  }
-  const requested = new Map<string, number>();
-  for (const x of input.items)
-    requested.set(
-      x.productId,
-      (requested.get(x.productId) || 0) +
-        Number(x.quantity || 0) +
-        Number(x.freeQuantity || 0),
-    );
-  for (const [pid, qty] of requested) {
-    const p = pmap.get(pid),
-      available = restored.get(pid) || 0;
-    if (!p) throw new Error("Selected batch no longer exists");
-    if (qty > available)
-      throw new Error(
-        `${p.name} batch ${p.batch}: cannot bill ${qty}; only ${available} available after reversing the original invoice`,
-      );
-  }
   let taxableSum = 0,
     discountSum = 0,
     gstSum = 0,
@@ -2899,8 +2899,14 @@ export async function updateSalesInvoice(
     amount = Math.round(net),
     roundOff = money2(amount - net),
     status = input.status || current.status,
-    oldDue = current.status === "Paid" ? 0 : current.amount,
-    newDue = status === "Paid" ? 0 : amount,
+    balanceDeltas = deriveInvoiceBalanceDeltas({
+      oldCustomerId: current.customerId,
+      newCustomerId: customer.id,
+      oldStatus: current.status,
+      oldAmount: current.amount,
+      newStatus: status,
+      newAmount: amount,
+    }),
     statements = [
       db
         .delete(invoiceLines)
@@ -2913,7 +2919,7 @@ export async function updateSalesInvoice(
       ...lines.map((x) => db.insert(invoiceLines).values(x)),
     ];
   for (const p of plist) {
-    const next = (restored.get(p.id) ?? p.stock) - (requested.get(p.id) || 0);
+    const next = stockPlan.nextStock.get(p.id) ?? p.stock;
     if (next !== p.stock)
       statements.push(
         db
@@ -2922,26 +2928,18 @@ export async function updateSalesInvoice(
           .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
       );
   }
-  if (current.customerId === customer.id && oldDue !== newDue)
+  for (const delta of balanceDeltas) {
+    if (delta.delta === 0) continue;
     statements.push(
       db
         .update(customers)
-        .set({
-          outstanding: balanceDelta(customers.outstanding, newDue - oldDue),
-        })
+        .set({ outstanding: balanceDelta(customers.outstanding, delta.delta) })
         .where(
           and(
-            eq(customers.id, customer.id),
+            eq(customers.id, delta.customerId),
             eq(customers.tenantId, m.tenantId),
           ),
         ),
-    );
-  if (current.customerId !== customer.id) {
-    statements.push(
-      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, -oldDue)})
-        .where(and(eq(customers.id, current.customerId), eq(customers.tenantId, m.tenantId))),
-      db.update(customers).set({outstanding: balanceDelta(customers.outstanding, newDue)})
-        .where(and(eq(customers.id, customer.id), eq(customers.tenantId, m.tenantId))),
     );
   }
   statements.push(
@@ -3076,7 +3074,7 @@ export async function replacePurchaseInward(
     ),
     masterByName = new Map(allMasters.map((x) => [x.name.toUpperCase(), x])),
     now = Date.now(),
-    statements: any[] = [
+    statements: BatchStatement[] = [
       db
         .delete(purchaseInwardItems)
         .where(
@@ -3094,7 +3092,7 @@ export async function replacePurchaseInward(
           ),
         ),
     ],
-    lineRows: any[] = [];
+    lineRows: Array<typeof purchaseInwardItems.$inferInsert> = [];
   let subtotal = 0,
     totalGst = 0;
   for (let i = 0; i < input.items.length; i++) {
@@ -3130,8 +3128,8 @@ export async function replacePurchaseInward(
       statements.push(db.insert(productMasters).values(master));
     }
     const key = `${x.productName}|${x.pack}|${x.batch}`.toUpperCase();
-    let product = productByKey.get(key),
-      multiplier = packMultiplier(x.pack),
+    let product = productByKey.get(key);
+    const multiplier = packMultiplier(x.pack),
       received = billed + free,
       taxable = money2(billed * rate),
       gstAmount = money2((taxable * gstRate) / 100),

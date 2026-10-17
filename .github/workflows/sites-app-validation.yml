@@ -1,0 +1,106 @@
+name: MediBill Sites App Financial Validation
+
+on:
+  pull_request:
+    branches: [sites-v34-fullstack-sync]
+    paths:
+      - "sites-app/lib/financial-validation.ts"
+      - "sites-app/lib/sales-ledger.ts"
+      - "sites-app/lib/medibill.ts"
+      - "sites-app/lib/invoice-stock-plan.ts"
+      - "sites-app/lib/stock-delta-validation.ts"
+      - "sites-app/lib/stock-concurrency.ts"
+      - "sites-app/lib/document-safety.ts"
+      - "sites-app/lib/invoice-deletion.ts"
+      - "sites-app/lib/customer-update.ts"
+      - "sites-app/scripts/test-stock-concurrency.mjs"
+      - "sites-app/scripts/test-document-safety.mjs"
+      - "sites-app/tests/financial-validation.test.mjs"
+      - "sites-app/tests/stock-concurrency.test.mjs"
+      - "sites-app/tests/sales-ledger.test.mjs"
+      - "sites-app/tests/invoice-stock-plan.test.mjs"
+      - "sites-app/package.json"
+      - "sites-app/package-lock.json"
+      - ".github/workflows/sites-app-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  financial-validation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Run sales financial validation and ledger regression tests
+        run: npm run test:financial-validation
+      - name: Run database-backed stock concurrency regressions
+        run: node scripts/test-stock-concurrency.mjs
+      - name: Run database-backed document safety regressions
+        run: node scripts/test-document-safety.mjs
+
+  focused-validation-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Lint the financial validation and ledger modules
+        run: npx eslint lib/financial-validation.ts lib/sales-ledger.ts lib/invoice-stock-plan.ts lib/stock-delta-validation.ts
+
+  full-project-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Run full-project ESLint
+        run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sites-app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: sites-app/package-lock.json
+      - name: Install Sites App dependencies
+        run: npm run install:ci
+      - name: Build Sites App
+        run: npm run build

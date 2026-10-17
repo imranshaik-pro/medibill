@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-type Customer = {
+export type Customer = {
   id: string;
   name: string;
   phone: string;
@@ -14,7 +14,7 @@ type Customer = {
   state?: string | null;
   stateCode?: string | null;
 };
-type Product = {
+export type Product = {
   id: string;
   productMasterId?: string | null;
   name: string;
@@ -27,7 +27,7 @@ type Product = {
   purchaseRate: number;
   mrp: number;
 };
-type Master = {
+export type Master = {
   id: string;
   name: string;
   composition: string;
@@ -36,11 +36,43 @@ type Master = {
   isHighCaution?: boolean;
   cautionNotes?: string;
 };
-type Prior = {
+export type Prior = {
   customerId: string;
   productId: string;
   unitRate: number;
   freeQuantity: number;
+  discountPercent: number;
+  gstRate: number;
+};
+export type InvoiceHeader = {
+  invoiceType?: string;
+  invoiceDate?: string;
+  invoiceTime?: string;
+  paymentMode?: string;
+  paymentTerms?: string;
+  dueDate?: string | null;
+  customerId?: string;
+  sellerStateCode?: string;
+  transportName?: string | null;
+  vehicleNo?: string | null;
+  lrNo?: string | null;
+  freightAmount?: number;
+  freightGstRate?: number;
+  insuranceAmount?: number;
+  insuranceGstRate?: number;
+  cashDiscount?: number;
+  cashDiscountType?: string;
+  status?: string;
+  prescriptionDoctorName?: string | null;
+  prescriptionDoctorRegistration?: string | null;
+  complianceAcknowledged?: boolean;
+};
+export type InvoiceLine = {
+  productName: string;
+  productId: string;
+  quantity: number;
+  freeQuantity: number;
+  unitRate: number;
   discountPercent: number;
   gstRate: number;
 };
@@ -133,7 +165,7 @@ export function SalesInvoiceForm({
   products: Product[];
   productMasters: Master[];
   prior: Prior[];
-  initial?: { header: Record<string, any>; lines: Array<Record<string, any>> };
+  initial?: { header: InvoiceHeader; lines: InvoiceLine[] };
   go: (b: Record<string, unknown>) => Promise<{ id: string } | undefined>;
 }) {
   const now = new Date(),
@@ -342,7 +374,7 @@ export function SalesInvoiceForm({
       complianceAcknowledged:
         complianceRequired &&
         regulatedMasters.every((m) => acknowledgedProducts.has(m.id)),
-      items: rows.map(({ productName, ...r }) => r),
+      items: rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "productName"))),
     });
     if (out) window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
     } catch (error) {

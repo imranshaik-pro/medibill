@@ -1,12 +1,13 @@
 import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "../db";
 import { customers, auditLogs } from "../db/schema";
 
-export async function persistCustomerEdit(db: any, member: {id: string; tenantId: string; role: string; status: string}, id: string, input: Record<string, unknown>) {
+export async function persistCustomerEdit(db: ReturnType<typeof getDb>, member: {id: string; tenantId: string; role: string; status: string}, id: string, input: Record<string, unknown>) {
   if (member.status !== "active" || !["owner", "admin", "super_admin"].includes(member.role)) throw new Error("Administrator access required");
   const existing = await db.select().from(customers).where(and(eq(customers.id,id),eq(customers.tenantId,member.tenantId))).get();
   if (!existing) throw new Error("Customer not found");
   const fields = ["name","phone","legalName","tradeName","gstin","dlNo","address","city","state","stateCode","pinCode","registrationStatus"];
-  const updates: Record<string, any> = {};
+  const updates: Record<string, string | null> = {};
   for (const field of fields) if (Object.hasOwn(input,field)) {
     if (typeof input[field] !== "string") throw new Error(`Invalid customer field: ${field}`);
     const value = (input[field] as string).trim();
@@ -16,7 +17,7 @@ export async function persistCustomerEdit(db: any, member: {id: string; tenantId
   if (!Object.keys(updates).length) throw new Error("No customer changes supplied");
   if ("name" in updates && !updates.name) throw new Error("Enter a firm name");
   if ("phone" in updates) {
-    let phone = updates.phone.replace(/[\s()+-]/g, "");
+    let phone = (updates.phone ?? "").replace(/[\s()+-]/g, "");
     if (/^91\d{10}$/.test(phone)) phone = phone.slice(2);
     // Preserve unchanged legacy contact data while allowing other corrections.
     if (!/^\d{10}$/.test(phone) && updates.phone !== existing.phone) throw new Error("Enter a 10-digit mobile number (optional +91 prefix)");
@@ -30,7 +31,7 @@ export async function persistCustomerEdit(db: any, member: {id: string; tenantId
   if ("registrationStatus" in updates && !updates.registrationStatus) updates.registrationStatus = "Unverified";
   // Audit failure or revoked access rolls back the edit instead of returning an ambiguous success.
   await db.batch([
-    db.update(customers).set(updates).where(and(eq(customers.id,id),eq(customers.tenantId,member.tenantId))),
+    db.update(customers).set(updates as Partial<typeof customers.$inferInsert>).where(and(eq(customers.id,id),eq(customers.tenantId,member.tenantId))),
     db.insert(auditLogs).values({id:crypto.randomUUID(),tenantId:member.tenantId,userId:member.id,action:"customer.updated",details:id,
       createdAt:sql`CASE WHEN EXISTS (SELECT 1 FROM users WHERE id=${member.id} AND tenant_id=${member.tenantId} AND status='active' AND role IN ('owner','admin','super_admin')) THEN ${Date.now()} ELSE NULL END`}),
   ]);

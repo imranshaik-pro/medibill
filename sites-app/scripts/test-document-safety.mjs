@@ -3,7 +3,6 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {drizzle} from 'drizzle-orm/d1';
-import {eq,and} from 'drizzle-orm';
 import {Miniflare} from 'miniflare';
 const root=fileURLToPath(new URL('../',import.meta.url));const temp=fs.mkdtempSync(root+'.stock-test-');
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:['DB'],compatibilityDate:'2026-05-22'});
@@ -14,18 +13,29 @@ try {
  const db=drizzle(DB);
  globalThis.__stockEnv={DB};globalThis.__stockGetDb=()=>db;
 
- for(const src of ['db/schema.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
+ for(const src of ['db/schema.ts','lib/financial-validation.ts','lib/sales-ledger.ts','lib/invoice-stock-plan.ts','lib/stock-delta-validation.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
   let text=fs.readFileSync(root+src,'utf8');
   text=text.replace('import { env } from "cloudflare:workers";','const env=globalThis.__stockEnv;')
     .replace('import { getDb } from "@/db";','const getDb=globalThis.__stockGetDb;')
+    .replaceAll('"./financial-validation"','"./financial-validation.mjs"').replaceAll('"./sales-ledger"','"./sales-ledger.mjs"').replaceAll('"./invoice-stock-plan"','"./invoice-stock-plan.mjs"').replaceAll('"./stock-delta-validation"','"./stock-delta-validation.mjs"')
     .replaceAll('"./invoice-deletion"','"./invoice-deletion.mjs"')
     .replaceAll('"@/db/schema"','"./schema.mjs"').replaceAll('"../db/schema"','"./schema.mjs"')
     .replaceAll('"./stock-concurrency"','"./stock-concurrency.mjs"').replaceAll('"./customer-update"','"./customer-update.mjs"').replaceAll('"./restore-security"','"./restore-security.mjs"');
   fs.writeFileSync(temp+'/'+src.split('/').at(-1).replace('.ts','.mjs'),ts.transpileModule(text,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
  }
  const api=await import(pathToFileURL(temp+'/medibill.mjs'));
- const helper=await import(pathToFileURL(temp+'/stock-concurrency.mjs'));
- const schema=await import(pathToFileURL(temp+'/schema.mjs'));
+
+ // Verify backup downloads fail closed when the stored bytes do not match the recorded checksum.
+ const backupBody=JSON.stringify({format:'medibill-pro-backup',tenantId:'A'});
+ const digest=async(body)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ await DB.prepare("INSERT INTO backup_records(id,tenant_id,file_name,object_key,kind,size_bytes,checksum,product_count,purchase_count,sales_count,batch_count,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+  .bind('BK','A','backup.json','backups/A/BK.json','manual',new TextEncoder().encode(backupBody).byteLength,await digest(backupBody),1,0,0,1,'U',0).run();
+ globalThis.__stockEnv.BUCKET={get:async()=>({text:async()=>backupBody})};
+ const verified=await api.getBackupFile('U','BK');
+ assert.equal(await verified.object.text(),backupBody);
+ globalThis.__stockEnv.BUCKET={get:async()=>({text:async()=>backupBody+'tampered'})};
+ await assert.rejects(api.getBackupFile('U','BK'),/integrity verification failed/);
+ delete globalThis.__stockEnv.BUCKET;
 
  const {runDocumentRequest}=await import(pathToFileURL(temp+'/document-safety.mjs'));
  const {nextDocumentNumber}=await import(pathToFileURL(temp+'/invoice-deletion.mjs'));

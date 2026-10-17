@@ -1,7 +1,7 @@
 type Member = { id: string; tenantId: string; role: string; status: string };
 type DeleteInput = { confirm_delete?: boolean; reason?: string };
 type Kind = 'sale' | 'purchase';
-type RecordRow = Record<string, any>;
+type RecordRow = Record<string, string | number | null>;
 
 // D1 limits SQL expression depth to 100. Balance conjunctions so complete
 // snapshot guards remain intact without a deeply nested, left-associative tree.
@@ -73,7 +73,7 @@ export async function deleteInvoiceRecord(
     const billed=Number(line[quantityColumn]), free=Number(line.free_quantity || 0);
     if (!Number.isSafeInteger(billed) || !Number.isSafeInteger(free) || billed<0 || free<0)
       throw new InvoiceDeletionError('Invalid invoice quantities. Repair the record before deleting.');
-    quantities.set(line.product_id,(quantities.get(line.product_id)||0)+billed+free);
+    quantities.set(String(line.product_id),(quantities.get(String(line.product_id))||0)+billed+free);
   }
   const batches: RecordRow[] = [];
   for (const [productId, quantity] of quantities) {
@@ -85,16 +85,16 @@ export async function deleteInvoiceRecord(
   }
   const due=header.status==='Paid'?0:Number(header[amountColumn]);
   if (!Number.isFinite(due) || due<0) throw new InvoiceDeletionError('Invalid invoice amount. Repair the record before deleting.');
-  if (party && party.outstanding+0.005<due) throw new InvoiceDeletionError('Party balance is below this invoice balance. Reconcile the ledger before deleting.');
+  if (party && Number(party.outstanding)+0.005<due) throw new InvoiceDeletionError('Party balance is below this invoice balance. Reconcile the ledger before deleting.');
   await beforeDelete(); // Abort without mutations if a recovery snapshot cannot be created.
-  const prepare=(sql:string,...values:any[])=>db.prepare(sql).bind(...values);
+  const prepare=(sql:string,...values:(string|number|null)[])=>db.prepare(sql).bind(...values);
   const guards:string[] = [
     `EXISTS(SELECT 1 FROM users WHERE id=? AND tenant_id=? AND status='active' AND role IN ('admin','super_admin'))`,
     `EXISTS(SELECT 1 FROM ${table} WHERE tenant_id=? AND id=? AND ${partyColumn} IS ? AND ${amountColumn}=? AND status=?)`,
     `(SELECT COUNT(*) FROM ${lineTable} WHERE tenant_id=? AND ${parentColumn}=?)=?`,
     `NOT EXISTS(SELECT 1 FROM returns WHERE tenant_id=? AND reference_no IN (${refSlots}))`,
   ];
-  const guardValues:any[] = [member.id,tenant,tenant,id,partyId,header[amountColumn],header.status,tenant,id,lines.length,tenant,...references];
+  const guardValues:(string|number|null)[] = [member.id,tenant,tenant,id,partyId,header[amountColumn],header.status,tenant,id,lines.length,tenant,...references];
   // Compare complete snapshots at commit time without one bind per item.
   const columnMatch=(row:RecordRow,alias:string,json:string)=>andSql(Object.keys(row).map(key=>{
     if(!/^[a-z_]+$/.test(key))throw new Error("Unexpected schema column");

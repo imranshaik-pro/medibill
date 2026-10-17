@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Image from "next/image";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getSalesInvoice } from "@/lib/medibill";
 import { PrintActions } from "./print-actions";
@@ -45,7 +46,7 @@ export default async function InvoicePrint({ params }: { params: Promise<{ id: s
 
         <header className="invoice-brand">
           <div className="agency-brand">
-            {profile.logoKey && <div className="agency-logo"><img src="/api/agency-profile/asset/logo" alt={`${profile.tradeName} logo`} /></div>}
+            {profile.logoKey && <div className="agency-logo"><Image src="/api/agency-profile/asset/logo" alt={`${profile.tradeName} logo`} width={180} height={90} style={{width:"100%",height:"auto",objectFit:"contain"}} /></div>}
             <div className="agency-copy">
               <p className="eyebrow">Pharmaceutical Distributor</p>
               <h1>{profile.tradeName}</h1>
@@ -153,7 +154,7 @@ export default async function InvoicePrint({ params }: { params: Promise<{ id: s
           </div>
           <div className="signatory">
             <b>For {profile.tradeName}</b>
-            {profile.signatureKey && <img src="/api/agency-profile/asset/signature" alt="Authorised signature" />}
+            {profile.signatureKey && <Image src="/api/agency-profile/asset/signature" alt="Authorised signature" width={160} height={80} style={{width:"auto",height:"auto",maxWidth:"100%",objectFit:"contain"}} />}
             <span>{profile.signatoryTitle || "Authorised Signatory"}</span>
           </div>
         </section>
