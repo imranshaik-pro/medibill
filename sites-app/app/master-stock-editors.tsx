@@ -71,8 +71,8 @@ export function ProductCatalogEditor({
   allowDelete: boolean;
   initialSearch?: string;
 }) {
-  const [q, setQ] = useState(initialSearch);
-  useEffect(() => setQ(initialSearch), [initialSearch]);
+  const [q, setQ] = useSyncedState(initialSearch);
+  
   const h1Warning =
     "Schedule H1 drug: Dispense only on the prescription of a Registered Medical Practitioner. Medical supervision is required.";
   const [selected, setSelected] = useState<Master | null>(null),
@@ -462,14 +462,14 @@ export function InventoryEditor({
     inventoryRows = [...rows, ...catalogOnlyRows];
   const [deleting, setDeleting] = useState<Batch | null>(null);
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
-  const [q, setQ] = useState(initialSearch),
+  const [q, setQ] = useSyncedState(initialSearch),
     [selected, setSelected] = useState<Batch | null>(null),
     [form, setForm] = useState<(Batch & { reason: string }) | null>(null),
     [busy, setBusy] = useState(false),
     filtered = inventoryRows.filter((r) => !deletedIds.includes(r.id)).filter((r) =>
       q.trim().toLowerCase().split(/\s+/).every(token=>[r.name,r.batch,r.pack].join(" ").toLowerCase().includes(token)),
     );
-  useEffect(() => setQ(initialSearch), [initialSearch]);
+  
   async function save() {
     if (
       !form ||
