@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
@@ -1139,7 +1139,7 @@ function Customers({ rows, changed }: { rows: Customer[]; changed: () => Promise
     </div></div>
   );
 }
-function ProductCatalog({ rows }: { rows: ProductMaster[] }) {
+export function ProductCatalog({ rows }: { rows: ProductMaster[] }) {
   return rows.length ? (
     <div className="table-scroll">
       <table>
@@ -1167,7 +1167,7 @@ function ProductCatalog({ rows }: { rows: ProductMaster[] }) {
     <Empty text="No products registered yet." />
   );
 }
-function Inventory({ rows }: { rows: Product[] }) {
+export function Inventory({ rows }: { rows: Product[] }) {
   const [q, setQ] = useState(""),
     filtered = rows.filter((r) =>
       (r.name + " " + r.batch).toLowerCase().includes(q.toLowerCase()),
@@ -1656,7 +1656,7 @@ function PartyLookup({
     [results, setResults] = useState<LookupParty[]>([]),
     [message, setMessage] = useState(""),
     [verifyUrl, setVerifyUrl] = useState("");
-  async function search() {
+  const search = useCallback(async () => {
     const value = q.trim();
     if (value.length < 2) {
       setMessage(
@@ -1691,13 +1691,13 @@ function PartyLookup({
     } finally {
       setLoading(false);
     }
-  }
+  }, [q, type]);
   useEffect(() => {
     const value = q.trim().toUpperCase();
     if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value)) return;
     const timer = window.setTimeout(search, 600);
     return () => window.clearTimeout(timer);
-  }, [q]);
+  }, [q, search]);
   return (
     <div className="party-lookup">
       <label>
@@ -2206,7 +2206,7 @@ function ProductForm({
     </form>
   );
 }
-function InvoiceForm({
+export function InvoiceForm({
   busy,
   data,
   go,
