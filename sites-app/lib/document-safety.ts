@@ -1,16 +1,20 @@
 import { documentRequests } from "../db/schema";
+import { getDb } from "../db";
 
 export class DocumentRequestError extends Error {
   constructor(message: string, public status = 409) { super(message); }
 }
 type Member = {id: string; tenantId: string; status: string};
 export type DocumentOperation = {
-  receipt: (db: any, result: unknown) => any[];
+  receipt: (db: ReturnType<typeof getDb>, result: unknown) => unknown[];
 };
-function canonical(value: any): string {
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k)+':'+canonical(value[k])).join(',') + '}';
-  return JSON.stringify(value) ?? 'null';
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return "{" + Object.keys(record).sort().map(k => JSON.stringify(k) + ":" + canonical(record[k])).join(",") + "}";
+  }
+  return JSON.stringify(value) ?? "null";
 }
 export async function runDocumentRequest<T>(db: D1Database, member: Member | null, kind: string,
   key: string | null, input: unknown, create: (operation: DocumentOperation) => Promise<T>) {
