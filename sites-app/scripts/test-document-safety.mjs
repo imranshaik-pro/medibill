@@ -3,7 +3,6 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 import {pathToFileURL,fileURLToPath} from 'node:url';
 import {drizzle} from 'drizzle-orm/d1';
-import {eq,and} from 'drizzle-orm';
 import {Miniflare} from 'miniflare';
 const root=fileURLToPath(new URL('../',import.meta.url));const temp=fs.mkdtempSync(root+'.stock-test-');
 const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:['DB'],compatibilityDate:'2026-05-22'});
@@ -24,8 +23,6 @@ try {
   fs.writeFileSync(temp+'/'+src.split('/').at(-1).replace('.ts','.mjs'),ts.transpileModule(text,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
  }
  const api=await import(pathToFileURL(temp+'/medibill.mjs'));
- const helper=await import(pathToFileURL(temp+'/stock-concurrency.mjs'));
- const schema=await import(pathToFileURL(temp+'/schema.mjs'));
 
  const {runDocumentRequest}=await import(pathToFileURL(temp+'/document-safety.mjs'));
  const {nextDocumentNumber}=await import(pathToFileURL(temp+'/invoice-deletion.mjs'));
