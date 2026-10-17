@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { runDocumentRequest, DocumentRequestError } from "@/lib/document-safety";
+import { runDocumentRequest } from "@/lib/document-safety";
 import { getMembership } from "@/lib/medibill";
 import { NextResponse } from "next/server";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
