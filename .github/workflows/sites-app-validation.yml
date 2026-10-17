@@ -14,7 +14,6 @@ on:
       - "sites-app/tests/stock-concurrency.test.mjs"
       - "sites-app/tests/sales-ledger.test.mjs"
       - "sites-app/tests/invoice-stock-plan.test.mjs"
-      - "sites-app/tests/stock-concurrency.test.mjs"
       - "sites-app/package.json"
       - "sites-app/package-lock.json"
       - ".github/workflows/sites-app-validation.yml"
