@@ -2806,8 +2806,7 @@ export async function updateSalesInvoice(
         freeQuantity: Number(item.freeQuantity || 0),
       })),
     ),
-    restored = stockPlan.restored,
-    requested = stockPlan.requested;
+    restored = stockPlan.restored;
   const complianceRequired = enforcePrescriptionCompliance(
     input,
     input.items
