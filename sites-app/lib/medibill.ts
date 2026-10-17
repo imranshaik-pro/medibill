@@ -1,6 +1,7 @@
 import type { DocumentOperation } from "./document-safety";
 import { validateSaleFinancialInput } from "./financial-validation";
 import { deriveInvoiceBalanceDeltas } from "./sales-ledger";
+import { planInvoiceStockTransition } from "./invoice-stock-plan";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
@@ -2796,7 +2797,17 @@ export async function updateSalesInvoice(
       .from(products)
       .where(eq(products.tenantId, m.tenantId)),
     pmap = new Map(plist.map((p) => [p.id, p])),
-    restored = new Map(plist.map((p) => [p.id, p.stock]));
+    stockPlan = planInvoiceStockTransition(
+      plist,
+      old,
+      input.items.map((item) => ({
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        freeQuantity: Number(item.freeQuantity || 0),
+      })),
+    ),
+    restored = stockPlan.restored,
+    requested = stockPlan.requested;
   const complianceRequired = enforcePrescriptionCompliance(
     input,
     input.items
@@ -2804,32 +2815,6 @@ export async function updateSalesInvoice(
       .filter((p): p is (typeof plist)[number] => Boolean(p)),
     masterRows,
   );
-  for (const x of old)
-    restored.set(
-      x.productId,
-      (restored.get(x.productId) || 0) + x.quantity + x.freeQuantity,
-    );
-  for (const x of input.items) {
-    if (!Number.isSafeInteger(Number(x.quantity)) || Number(x.quantity) <= 0 || !Number.isSafeInteger(Number(x.freeQuantity || 0)) || Number(x.freeQuantity || 0) < 0)
-      throw new Error("Enter positive whole billed units and nonnegative whole free units");
-  }
-  const requested = new Map<string, number>();
-  for (const x of input.items)
-    requested.set(
-      x.productId,
-      (requested.get(x.productId) || 0) +
-        Number(x.quantity || 0) +
-        Number(x.freeQuantity || 0),
-    );
-  for (const [pid, qty] of requested) {
-    const p = pmap.get(pid),
-      available = restored.get(pid) || 0;
-    if (!p) throw new Error("Selected batch no longer exists");
-    if (qty > available)
-      throw new Error(
-        `${p.name} batch ${p.batch}: cannot bill ${qty}; only ${available} available after reversing the original invoice`,
-      );
-  }
   let taxableSum = 0,
     discountSum = 0,
     gstSum = 0,
@@ -2923,7 +2908,7 @@ export async function updateSalesInvoice(
       ...lines.map((x) => db.insert(invoiceLines).values(x)),
     ];
   for (const p of plist) {
-    const next = (restored.get(p.id) ?? p.stock) - (requested.get(p.id) || 0);
+    const next = stockPlan.nextStock.get(p.id) ?? p.stock;
     if (next !== p.stock)
       statements.push(
         db
