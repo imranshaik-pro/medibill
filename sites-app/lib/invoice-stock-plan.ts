@@ -15,14 +15,36 @@ export function planInvoiceStockTransition(
   requested: Map<string, number>;
   nextStock: Map<string, number>;
 } {
-  const productMap = new Map(products.map((product) => [product.id, product]));
-  const restored = new Map(products.map((product) => [product.id, product.stock]));
+  const productMap = new Map<string, StockProduct>();
+  const restored = new Map<string, number>();
+  for (const product of products) {
+    if (!product.id || productMap.has(product.id)) {
+      throw new Error("Inventory contains a missing or duplicate batch identifier");
+    }
+    if (!Number.isSafeInteger(product.stock) || product.stock < 0) {
+      throw new Error(`${product.name} batch ${product.batch}: invalid current stock`);
+    }
+    productMap.set(product.id, product);
+    restored.set(product.id, product.stock);
+  }
+
   for (const line of oldLines) {
-    const oldUnits = line.quantity + (line.freeQuantity ?? 0);
-    if (!Number.isSafeInteger(oldUnits) || oldUnits < 0) {
+    if (!productMap.has(line.productId)) {
+      throw new Error("An existing invoice batch no longer exists; reconcile inventory before editing");
+    }
+    const quantity = line.quantity;
+    const freeQuantity = line.freeQuantity ?? 0;
+    const oldUnits = quantity + freeQuantity;
+    if (!Number.isSafeInteger(quantity) || quantity < 0 ||
+        !Number.isSafeInteger(freeQuantity) || freeQuantity < 0 ||
+        !Number.isSafeInteger(oldUnits)) {
       throw new Error("Existing invoice contains invalid stock quantities");
     }
-    restored.set(line.productId, (restored.get(line.productId) || 0) + oldUnits);
+    const totalRestored = (restored.get(line.productId) ?? 0) + oldUnits;
+    if (!Number.isSafeInteger(totalRestored)) {
+      throw new Error("Existing invoice stock quantity is too large to restore safely");
+    }
+    restored.set(line.productId, totalRestored);
   }
 
   const requested = new Map<string, number>();
@@ -40,7 +62,7 @@ export function planInvoiceStockTransition(
 
   for (const [productId, quantity] of requested) {
     const product = productMap.get(productId);
-    const available = restored.get(productId) || 0;
+    const available = restored.get(productId) ?? 0;
     if (!product) throw new Error("Selected batch no longer exists");
     if (quantity > available) {
       throw new Error(
