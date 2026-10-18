@@ -1,0 +1,8 @@
+import { NextResponse } from "next/server";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { addCustomer } from "@/lib/medibill";
+export async function POST(request: Request) {
+  const user = await getChatGPTUser(); if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { const b = await request.json(); if (!b.name || !/^\d{10}$/.test(String(b.phone))) throw new Error("Enter a firm name and 10-digit phone number"); if(b.gstin&&!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(String(b.gstin).toUpperCase()))throw new Error("Enter a valid 15-character GSTIN"); if(b.pinCode&&!/^\d{6}$/.test(String(b.pinCode)))throw new Error("Enter a valid 6-digit pincode"); return NextResponse.json(await addCustomer(user.userId, b), { status: 201 }); }
+  catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Unable to save customer" }, { status: 400 }); }
+}

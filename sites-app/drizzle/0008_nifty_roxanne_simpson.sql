@@ -1,0 +1,1 @@
+ALTER TABLE `product_masters` ADD `composition` text DEFAULT '' NOT NULL;

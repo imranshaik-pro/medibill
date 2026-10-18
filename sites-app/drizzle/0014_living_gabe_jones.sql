@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `mfg_date` text DEFAULT '' NOT NULL;
