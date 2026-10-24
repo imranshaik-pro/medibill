@@ -29,6 +29,7 @@ def test_populated_previous_revision_upgrade_preserves_business_data():
             c.execute(text("INSERT INTO sales_invoices(id,company_id,invoice_number,invoice_date,customer_id,subtotal,taxable_total,grand_total,created_by,created_at,updated_at) VALUES(1,1,'ORIGINAL',CURRENT_DATE,1,80,80,80,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
             for i,name in enumerate(('Admin','Accounts','Inventory Operator','Custom'),1):
                 c.execute(text("INSERT INTO roles(id,company_id,name,created_at) VALUES(:id,1,:name,CURRENT_TIMESTAMP)"),dict(id=i,name=name))
+            c.execute(text("SELECT setval('sales_invoices_id_seq',1)"))
             before=c.execute(text('SELECT id,invoice_number,grand_total,created_at FROM sales_invoices')).all()
         migrate('head')
         with isolated.begin() as c:

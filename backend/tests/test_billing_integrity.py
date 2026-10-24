@@ -172,6 +172,31 @@ def test_concurrent_purchase_returns(tenant):
 @postgres
 def test_concurrent_last_unit(tenant):
     t=tenant;post('sales/invoices',t['h'],t['payload'](quantity=9))
-    results=race([lambda:client.post('/api/v1/sales/invoices',headers=t['h'],json=t['payload']()) for _ in range(2)])
+    other=post('master-data/customers',t['h'],dict(customer_code=uuid4().hex,customer_name='Other Counter Buyer',customer_type='PHARMACY',credit_limit=100000,is_active=True))
+    payloads=[t['payload'](),dict(t['payload'](),customer_id=other['id'])]
+    results=race([lambda p=p:client.post('/api/v1/sales/invoices',headers=t['h'],json=p) for p in payloads])
     assert sorted(r.status_code for r in results)==[201,409],[r.text for r in results]
     assert stock(t)==0
+
+
+def test_receipt_scope_and_foreign_customer_rejected(tenant):
+    t=tenant;key=uuid4().hex;headers=dict(t['h'],**{'Idempotency-Key':key})
+    post('sales/invoices',headers,t['payload']())
+    email=f'other-{uuid4().hex}@example.com'
+    post('auth/register',{},dict(name='Other',email=email,password='StrongPass123!',company_name='Other Seller'))
+    token=post('auth/login',{},dict(email=email,password='StrongPass123!'),200)['access_token']
+    other={'Authorization':'Bearer '+token,'Idempotency-Key':key}
+    post('sales/invoices',other,t['payload'](),400)
+    assert stock(t)==9
+
+
+def test_audit_and_stock_rollback_when_snapshot_fails(tenant,monkeypatch):
+    t=tenant
+    def fail(*args):
+        raise RuntimeError('snapshot failure after stock deduction')
+    monkeypatch.setattr('app.api.v1.sales.get_sales_invoice_document',fail)
+    post('sales/invoices',dict(t['h'],**{'Idempotency-Key':uuid4().hex}),t['payload'](),500)
+    assert stock(t)==10
+    with SessionLocal() as db:
+        assert db.query(SalesInvoice).filter_by(company_id=t['user']['company_id']).count()==0
+        assert db.query(CommandReceipt).filter_by(company_id=t['user']['company_id']).count()==0
