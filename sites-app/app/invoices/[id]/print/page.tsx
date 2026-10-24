@@ -1,3 +1,4 @@
+import { formatInvoiceManufacturer } from "@/lib/invoice-print-format";
 import { notFound } from "next/navigation";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getSalesInvoice } from "@/lib/medibill";
@@ -104,7 +105,7 @@ export default async function InvoicePrint({ params }: { params: Promise<{ id: s
               </tr></thead>
               <tbody>{lines.map((line, index) => <tr key={line.id}>
                 <td>{index + 1}</td><td className="product-name"><b>{line.productName}</b></td><td>{line.pack}</td>
-                <td>{line.manufacturer}</td><td>{line.batch}</td><td>{line.expiry}</td>
+                <td>{formatInvoiceManufacturer(line.manufacturer)}</td><td>{line.batch}</td><td>{line.expiry}</td>
                 <td className="numeric">{number(line.quantity)}</td><td className="numeric">{number(line.freeQuantity)}</td>
                 <td className="numeric">{money(line.unitRate)}</td><td className="numeric">{money(line.mrp)}</td>
                 <td className="numeric">{number(line.discountPercent)}</td><td className="numeric">{number(line.gstRate)}</td>
