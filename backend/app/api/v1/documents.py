@@ -80,8 +80,7 @@ def _settings(db: Session, company_id: int) -> CompanySettings:
     settings = db.query(CompanySettings).filter(CompanySettings.company_id == company_id).first()
     if not settings:
         settings = CompanySettings(company_id=company_id, invoice_prefix="INV", next_invoice_number=1, currency="INR", selected_invoice_template="PHARMA_A4")
-        db.add(settings)
-        db.flush()
+
     return settings
 
 
@@ -131,6 +130,7 @@ def update_document_settings(
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     settings = _settings(db, current_user.company_id)
+    db.add(settings)
     payload = data.model_dump(exclude_unset=True)
     company_map = {
         "company_address": "address", "company_city": "city", "company_state": "state",
@@ -168,6 +168,9 @@ def get_sales_invoice_document(
     ).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Sales invoice not found")
+
+    if invoice.document_snapshot is not None:
+        return InvoiceDocument.model_validate(invoice.document_snapshot)
 
     company = db.query(Company).filter(Company.id == current_user.company_id).first()
     settings = _settings(db, current_user.company_id)

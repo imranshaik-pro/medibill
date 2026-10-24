@@ -10,6 +10,10 @@ from app.core.constants import Role as RoleConstants
 
 PERMISSIONS = [
     ("create_invoice", "Create sales invoices"),
+    ("collect_payment", "Collect customer payments"),
+    ("pay_supplier", "Pay suppliers"),
+    ("override_credit_limit", "Override customer credit limit"),
+    ("override_minimum_sale_rate", "Override minimum sale rate"),
     ("view_invoice", "View invoices"),
     ("manage_customers", "Manage customers"),
     ("manage_products", "Manage products"),
@@ -40,16 +44,17 @@ def ensure_company_roles(db: Session, company: Company) -> Role:
         RoleConstants.ADMIN: list(permissions.values()),
         RoleConstants.MANAGER: [permissions[name] for name in (
             "create_invoice", "view_invoice", "manage_customers", "manage_products",
-            "manage_inventory", "manage_users",
+            "manage_inventory", "manage_users", "collect_payment", "pay_supplier",
+            "override_credit_limit", "override_minimum_sale_rate",
         )],
         RoleConstants.BILLING_OPERATOR: [permissions[name] for name in (
-            "create_invoice", "view_invoice", "manage_customers", "manage_products",
+            "create_invoice", "view_invoice", "manage_customers", "manage_products", "collect_payment",
         )],
         RoleConstants.INVENTORY_OPERATOR: [permissions[name] for name in (
             "manage_products", "manage_inventory",
         )],
         RoleConstants.ACCOUNTS: [permissions[name] for name in (
-            "view_invoice", "view_reports",
+            "view_invoice", "view_reports", "collect_payment", "pay_supplier",
         )],
         RoleConstants.VIEWER: [permissions[name] for name in (
             "view_invoice", "view_reports",

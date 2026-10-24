@@ -129,7 +129,7 @@ def create_purchase_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("manage_inventory")),
 ):
-    supplier = supplier_query(db, current_user.company_id).filter(Supplier.id == data.supplier_id).first()
+    supplier = supplier_query(db, current_user.company_id).filter(Supplier.id == data.supplier_id).with_for_update().first()
     if not supplier or not supplier.is_active:
         raise HTTPException(status_code=400, detail="Supplier is not available")
     if data.purchase_date > date.today():

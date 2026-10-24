@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.dependencies import get_current_user, require_permission
 from app.db.session import get_db
+from app.models.customer import Customer
+from app.models.supplier import Supplier
+from app.services.audit import write_audit
 from app.models.inventory import CurrentStock, InventoryTransaction
 from app.models.purchase_invoice import PurchaseInvoice, PurchaseInvoiceItem
 from app.models.returns import PurchaseReturn, PurchaseReturnItem, SalesReturn, SalesReturnItem
@@ -53,6 +56,8 @@ def create_sales_return(
     if _sales_return_query(db, current_user.company_id).filter(SalesReturn.return_number == data.return_number).first():
         raise HTTPException(status_code=409, detail="Sales return number already exists")
 
+    db.query(Customer).filter(Customer.id == invoice.customer_id, Customer.company_id == current_user.company_id).with_for_update().one()
+    db.query(SalesInvoice).filter(SalesInvoice.id == invoice.id, SalesInvoice.company_id == current_user.company_id).with_for_update().one()
     item_map = {item.id: item for item in invoice.items}
     requested_ids = [x.sales_invoice_item_id for x in data.items]
     if len(requested_ids) != len(set(requested_ids)):
@@ -74,6 +79,10 @@ def create_sales_return(
     taxable_total = cgst_total = sgst_total = igst_total = Decimal("0")
     try:
         db.flush()
+        db.query(CurrentStock).filter(
+            CurrentStock.company_id == current_user.company_id,
+            CurrentStock.batch_id.in_({item.batch_id for item in item_map.values()}),
+        ).order_by(CurrentStock.batch_id, CurrentStock.id).with_for_update().all()
         for request in data.items:
             original = item_map[request.sales_invoice_item_id]
             already_returned = db.query(func.coalesce(func.sum(SalesReturnItem.quantity), 0)).join(
@@ -144,6 +153,9 @@ def create_sales_return(
         sales_return.sgst = money(sgst_total)
         sales_return.igst = money(igst_total)
         sales_return.grand_total = money(taxable_total + cgst_total + sgst_total + igst_total)
+        write_audit(db, company_id=current_user.company_id, user_id=current_user.id,
+                    action="SALES_RETURN", entity_type="SalesReturn", entity_id=sales_return.id,
+                    new_value={"invoice_id": invoice.id, "total": str(sales_return.grand_total)})
         db.commit(); db.refresh(sales_return)
     except HTTPException:
         db.rollback(); raise
@@ -186,6 +198,8 @@ def create_purchase_return(
     if _purchase_return_query(db, current_user.company_id).filter(PurchaseReturn.return_number == data.return_number).first():
         raise HTTPException(status_code=409, detail="Purchase return number already exists")
 
+    db.query(Supplier).filter(Supplier.id == invoice.supplier_id, Supplier.company_id == current_user.company_id).with_for_update().one()
+    db.query(PurchaseInvoice).filter(PurchaseInvoice.id == invoice.id, PurchaseInvoice.company_id == current_user.company_id).with_for_update().one()
     item_map = {item.id: item for item in invoice.items}
     requested_ids = [x.purchase_invoice_item_id for x in data.items]
     if len(requested_ids) != len(set(requested_ids)):
@@ -206,6 +220,10 @@ def create_purchase_return(
     taxable_total = cgst_total = sgst_total = igst_total = Decimal("0")
     try:
         db.flush()
+        db.query(CurrentStock).filter(
+            CurrentStock.company_id == current_user.company_id,
+            CurrentStock.batch_id.in_({item.batch_id for item in item_map.values()}),
+        ).order_by(CurrentStock.batch_id, CurrentStock.id).with_for_update().all()
         for request in data.items:
             original = item_map[request.purchase_invoice_item_id]
             prev = db.query(
@@ -274,6 +292,9 @@ def create_purchase_return(
         purchase_return.sgst = money(sgst_total)
         purchase_return.igst = money(igst_total)
         purchase_return.grand_total = money(taxable_total + cgst_total + sgst_total + igst_total)
+        write_audit(db, company_id=current_user.company_id, user_id=current_user.id,
+                    action="PURCHASE_RETURN", entity_type="PurchaseReturn", entity_id=purchase_return.id,
+                    new_value={"invoice_id": invoice.id, "total": str(purchase_return.grand_total)})
         db.commit(); db.refresh(purchase_return)
     except HTTPException:
         db.rollback(); raise

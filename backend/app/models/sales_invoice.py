@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Numeric, Date, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Numeric, Date, Text, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, date
 from app.db.base import Base
@@ -23,6 +23,7 @@ class SalesInvoice(Base):
     round_off = Column(Numeric(14, 2), default=0)
     grand_total = Column(Numeric(14, 2), nullable=False)
     payment_status = Column(String(50), default="Pending", index=True)
+    document_snapshot = Column(JSON, nullable=True)
     notes = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -34,7 +35,7 @@ class SalesInvoice(Base):
 
     company = relationship("Company", back_populates="sales_invoices")
     customer = relationship("Customer", back_populates="sales_invoices")
-    items = relationship("SalesInvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
+    items = relationship("SalesInvoiceItem", back_populates="invoice", cascade="all, delete-orphan", order_by="SalesInvoiceItem.id")
     payments = relationship("Payment", back_populates="sales_invoice")
 
 
