@@ -18,6 +18,8 @@ export type StockReportOptions = {
   search: string;
   columns: StockReportColumn[];
   productsOnly: boolean;
+  condition?: "all" | "low" | "near" | "expired";
+  lowThreshold?: number;
 };
 export const stockReportPresets = {
   products: { label: "Available products", columns: ["name", "pack", "manufacturer"], productsOnly: true },
@@ -29,7 +31,18 @@ export const stockReportPresets = {
 
 export function selectStockReport(products: StockReportProduct[], options: StockReportOptions) {
   const tokens = options.search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const expiryDay = (s:string) => {
+    let y:number,m:number;const iso=/^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(s), short=/^(\d{2})\/(\d{2}|\d{4})$/.exec(s);
+    if(iso){y=Number(iso[1]);m=Number(iso[2])}else if(short){y=Number(short[2]);if(y<100)y+=2000;m=Number(short[1])}else return NaN;
+    return m>=1&&m<=12?Date.UTC(y,m,0):NaN;
+  };
   const matches = products.filter(p =>
+    (!options.condition || options.condition === 'all' ||
+      (options.condition === 'low' && p.stock <= (options.lowThreshold ?? 10)) ||
+      (options.condition === 'near' && p.stock > 0 && expiryDay(p.expiry)>=today && expiryDay(p.expiry)<=today+90*86400000) ||
+      (options.condition === 'expired' && p.stock > 0 && expiryDay(p.expiry)<today)) &&
     (options.availability === "all" || (options.availability === "available" ? p.stock > 0 : p.stock <= 0)) &&
     tokens.every(token => [p.name, p.pack, p.manufacturer, p.batch].join(" ").toLocaleLowerCase().includes(token)),
   ).sort((a, b) => a.name.localeCompare(b.name, "en-IN", {numeric: true}) || a.pack.localeCompare(b.pack) || a.batch.localeCompare(b.batch) || a.id.localeCompare(b.id));

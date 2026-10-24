@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { draftScope } from "@/lib/invoice-drafts";
+import { PharmaReports } from "./pharma-reports";
 import { StockReports } from "./stock-reports";
 import { WorkspaceSearch } from "./workspace-search";
 import {
@@ -1454,7 +1455,7 @@ function Empty({ text }: { text: string }) {
 function Reports({data}: {data: Data}) {
   return <>
     <Head title="Reports" sub="Generate and export stock data for your workspace." />
-    <StockReports companyName={data.tenant.companyName} />
+    <PharmaReports /><StockReports companyName={data.tenant.companyName} />
   </>;
 }
 function Admin({

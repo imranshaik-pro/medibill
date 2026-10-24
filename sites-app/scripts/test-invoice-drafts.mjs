@@ -69,6 +69,12 @@ try {
  assert.throws(()=>writeInvoiceDraft(storage,scope,'invoice-1',draft.state,draft.generation),/another tab/);
  assert.throws(()=>removeInvoiceDraft(storage,scope,'invoice-1',draft.generation),/another tab/);
  assert.equal(readInvoiceDraft(storage,scope,'invoice-1').generation,newer.generation);
+ // Explicit deletion affects only the selected user/tenant draft and not saved edits elsewhere.
+ const disposable=writeInvoiceDraft(storage,agency,null,{head:{},rows:[],acknowledged:[]},null);
+ const preserved=readInvoiceDraft(storage,scope,'invoice-1');
+ removeInvoiceDraft(storage,agency,null,disposable.generation);
+ assert.equal(readInvoiceDraft(storage,agency,null),null);
+ assert.equal(readInvoiceDraft(storage,scope,'invoice-1').generation,preserved.generation);
  // Storage denied/quota errors must be visible and must not claim a draft was saved.
  await mount({draftScope:other});
  const originalSet=storage.setItem;storage.setItem=()=>{throw new Error('Storage quota exceeded')};

@@ -22,15 +22,15 @@ try {
  for(let i=0;i<135;i++) await DB.prepare("INSERT INTO products(id,tenant_id,name,pack,manufacturer,batch,expiry,stock,mrp,purchase_rate,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
   .bind('A'+i,'A','Medicine '+Math.floor(i/2),'10','Maker','B'+i,'2028-12',i===0?0:i===1?-1:5,100+i,40+i/10,i).run();
  await DB.prepare("INSERT INTO products(id,tenant_id,name,batch,expiry,stock,mrp,purchase_rate,created_at) VALUES('foreign','B','Foreign medicine','FB','2028-12',999,999,999,0)").run();
- globalThis.__reportDb=drizzle(DB);
+ globalThis.__reportDb=drizzle(DB);globalThis.__reportRawDb=DB;
  globalThis.__reportUser={userId:'U'};
  const shims={
   '@/db':'export const getDb=()=>globalThis.__reportDb;',
-  'cloudflare:workers':'export const env={};',
+  'cloudflare:workers':'export const env={DB:globalThis.__reportRawDb};',
   '@/app/chatgpt-auth':'export const getChatGPTUser=async()=>globalThis.__reportUser;',
   'next/server':'export const NextResponse={json:(body,init)=>Response.json(body,init)};',
  };
- for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['app/api/reports/stock/route.ts','route'],['app/stock-reports.tsx','ui']]) {
+ for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['lib/pharma-report-data.ts','pharma-data'],['lib/pharma-reports.ts','pharma'],['lib/invoice-deletion.ts','deletion'],['app/api/reports/stock/route.ts','route'],['app/stock-reports.tsx','ui']]) {
   await build({entryPoints:[root+entry],outfile:temp+'/'+name+'.mjs',bundle:true,platform:'node',format:'esm',packages:'external',jsx:'automatic',plugins:[{name:'runtime',setup(b){
    b.onResolve({filter:/^(cloudflare:workers|@\/db|@\/app\/chatgpt-auth|next\/server)$/},args=>({path:args.path,namespace:'test'}));
    b.onLoad({filter:/.*/,namespace:'test'},args=>({contents:shims[args.path],loader:'js'}));
@@ -40,6 +40,31 @@ try {
  const {stockReportData}=await import(pathToFileURL(temp+'/data.mjs'));
  const {GET}=await import(pathToFileURL(temp+'/route.mjs'));
  const snapshot=await stockReportData('U');
+ const {pharmaReportData,reportProduct}=await import(pathToFileURL(temp+'/pharma-data.mjs'));
+ const {pharmaReports}=await import(pathToFileURL(temp+'/pharma.mjs'));
+ const {deleteInvoiceRecord}=await import(pathToFileURL(temp+'/deletion.mjs'));
+ await assert.rejects(deleteInvoiceRecord({prepare(){throw new Error('must not query or mutate')}},{id:'U',tenantId:'A',status:'active',role:'admin'},'sale','posted',{confirm_delete:true,reason:'Test'},async()=>{throw new Error('must not back up')}),/locked against deletion/);
+ await DB.prepare("INSERT INTO customers(id,tenant_id,name,phone,outstanding,created_at) VALUES('C','A','Buyer','9000000000',200,0)").run();
+ await DB.prepare("INSERT INTO suppliers(id,tenant_id,name,phone,outstanding,created_at) VALUES('S','A','Seller','9000000001',100,0)").run();
+ await DB.prepare("INSERT INTO invoices(id,tenant_id,invoice_no,customer_id,customer_name,amount,invoice_date,cgst,sgst,created_at) VALUES('I','A','INV1','C','Buyer',210,'2026-10-25',5,5,0)").run();
+ await DB.prepare("INSERT INTO invoice_lines(id,tenant_id,invoice_id,customer_id,product_id,product_name,batch,quantity,unit_rate,taxable_amount,gst_amount,line_total,created_at) VALUES('L','A','I','C','A2','Medicine','B2',2,100,200,10,210,0)").run();
+ await DB.prepare("INSERT INTO purchase_inwards(id,tenant_id,inward_no,supplier_id,supplier_name,invoice_date,grand_total,cgst,sgst,created_at) VALUES('PI','A','PIN1','S','Seller','2026-10-25',105,2.5,2.5,0)").run();
+ await DB.prepare("INSERT INTO payments(id,tenant_id,payment_no,type,party_id,party_name,amount,method,payment_date,created_at) VALUES('PAY','A','PAY1','Customer receipt','C','Buyer',10,'Cash','2026-10-25',0)").run();
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'sales'}))).rows[0].Total,210);
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'salesInvoices'}))).rows.length,1);
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'sales',from:'2026-10-26'}))).rows.length,0);
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'cash'}))).rows[0].Receipt,10);
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'cash'}))).rows[0].Payment,0);
+ assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'gst'}))).rows.length,2);
+ assert.equal((await pharmaReportData('V',new URLSearchParams({kind:'sales'}))).rows.length,0);
+
+ for(const kind of Object.keys(pharmaReports)) {const r=await pharmaReportData('U',new URLSearchParams({kind}));assert(Array.isArray(r.rows),kind);assert(!r.rows.some(row=>JSON.stringify(row).includes('foreign')),kind+' tenant isolation');}
+ assert.equal((await reportProduct('U','A2')).Batch,'B2');
+ assert.equal(await reportProduct('V','A2'),null);
+ await assert.rejects(pharmaReportData('P',new URLSearchParams()),/ACCESS_DENIED/);
+ await assert.rejects(pharmaReportData('U',new URLSearchParams({kind:'DROP TABLE users'})),/Unknown report/);
+ await assert.rejects(pharmaReportData('U',new URLSearchParams({from:'2026-02-30'})),/valid report date/);
+
  assert.equal(snapshot.products.length,135,'report exceeds dashboard 100-row cap');
  assert(!snapshot.products.some(p=>p.id==='foreign'),'tenant stock is isolated');
  assert.equal((await stockReportData('V')).products.length,1);

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ProductDescription } from "./product-description";
 import { Button } from "@/components/ui/button";
 import { stockReportColumns, stockReportPresets, selectStockReport, selectedStockColumns, stockReportCsv, stockReportPrintHtml, type StockReportProduct, type StockReportOptions, type StockReportColumn } from "@/lib/stock-report";
 
@@ -46,7 +47,7 @@ export function StockReports({companyName}: {companyName: string}) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const context = snapshot ? `Stock snapshot: ${new Date(snapshot.generatedAt).toLocaleString("en-IN")}\nStock filter: ${{available: "In stock only", all: "All stock records", out: "Out of stock"}[options.availability]}${options.search.trim() ? ` · Search: ${options.search.trim()}` : ""}\n${options.productsOnly ? "Unique products by name, pack and manufacturer." : "One row per stock batch."}` : "";
+  const context = snapshot ? `Stock snapshot: ${new Date(snapshot.generatedAt).toLocaleString("en-IN")}\nInventory condition: ${options.condition||"all"}\nStock filter: ${{available: "In stock only", all: "All stock records", out: "Out of stock"}[options.availability]}${options.search.trim() ? ` · Search: ${options.search.trim()}` : ""}\n${options.productsOnly ? "Unique products by name, pack and manufacturer." : "One row per stock batch."}` : "";
   function printReport() {
     const tab = window.open("", "_blank");
     if (!tab) { setError("Allow pop-ups for MediBill to open the printable report, or download the CSV."); return; }
@@ -58,6 +59,7 @@ export function StockReports({companyName}: {companyName: string}) {
     <div className="stock-report-controls">
       <label>Report format<select value={preset} onChange={e => choosePreset(e.target.value)}>{Object.entries(stockReportPresets).map(([key, p]) => <option key={key} value={key}>{p.label}</option>)}<option value="custom">Custom columns (by batch)</option></select></label>
       <label>Stock filter<select value={options.availability} onChange={e => setOptions(o => ({...o, availability: e.target.value as StockReportOptions["availability"]}))}><option value="available">In stock only</option><option value="all">All stock records</option><option value="out">Out of stock</option></select></label>
+      <label>Inventory condition<select value={options.condition||"all"} onChange={e=>setOptions(o=>({...o,condition:e.target.value as StockReportOptions["condition"]}))}><option value="all">All conditions</option><option value="low">Low stock (10 or fewer)</option><option value="near">Expiring in 90 days</option><option value="expired">Expired stock</option></select></label>
       <label>Search products<input value={options.search} placeholder="Product, batch, pack or manufacturer" onChange={e => setOptions(o => ({...o, search: e.target.value}))}/></label>
       <fieldset><legend>Include columns</legend><div className="stock-report-columns">{stockReportColumns.map(c => <label key={c.key}><input type="checkbox" checked={c.key === "name" || options.columns.includes(c.key)} disabled={c.key === "name"} onChange={e => toggleColumn(c.key, e.target.checked)}/>{c.label}</label>)}</div></fieldset>
       <div className="stock-report-actions"><Button type="button" disabled={busy} onClick={generate}>{busy ? "Generating…" : snapshot ? "Refresh stock report" : "Generate stock report"}</Button><Button type="button" variant="outline" disabled={busy || !snapshot || !rows.length} onClick={downloadCsv}>Download CSV</Button><Button type="button" variant="outline" disabled={busy || !snapshot || !rows.length} onClick={printReport}>Print / Save PDF</Button></div>
@@ -66,6 +68,6 @@ export function StockReports({companyName}: {companyName: string}) {
       {snapshot && <p role="status" className="stock-report-note">{rows.length} {options.productsOnly ? "products" : "batch rows"} from {snapshot.products.length} stock records · Snapshot: {new Date(snapshot.generatedAt).toLocaleString("en-IN")}. Filters and columns update the preview and exports together. Refresh to include newer stock changes.</p>}
     </div>
     {snapshot && rows.length > 100 && <nav className="stock-report-pagination" aria-label="Report preview pages"><Button type="button" variant="outline" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous rows</Button><span>Preview rows {currentPage * 100 + 1}–{Math.min((currentPage + 1) * 100, rows.length)} of {rows.length}. Exports include all {rows.length} matching rows.</span><Button type="button" variant="outline" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>Next rows</Button></nav>}
-    {snapshot && (rows.length ? <div className="table-scroll" tabIndex={0} aria-label="Stock report preview"><table><thead><tr>{columns.map(c => <th key={c.key} scope="col">{c.label}</th>)}</tr></thead><tbody>{preview.map(p => <tr key={p.id}>{columns.map(c => <td key={c.key}>{c.key === "mrp" || c.key === "purchaseRate" ? p[c.key].toFixed(2) : p[c.key]}</td>)}</tr>)}</tbody></table></div> : <p className="empty">No stock records match these filters.</p>)}
+    {snapshot && (rows.length ? <div className="table-scroll" tabIndex={0} aria-label="Stock report preview"><table><thead><tr>{columns.map(c => <th key={c.key} scope="col">{c.label}</th>)}<th>Product Description</th></tr></thead><tbody>{preview.map(p => <tr key={p.id}>{columns.map(c => <td key={c.key}>{c.key === "mrp" || c.key === "purchaseRate" ? p[c.key].toFixed(2) : p[c.key]}</td>)}<td><ProductDescription id={p.id}/></td></tr>)}</tbody></table></div> : <p className="empty">No stock records match these filters.</p>)}
   </section>;
 }
