@@ -400,6 +400,7 @@ export function SalesInvoiceForm({
     <form className="sales-engine" onSubmit={submit}>
       <div className="rounded-lg border p-3 text-sm" role="status" aria-live="polite">
         <span>{draft.error || draft.notice || "Entries are saved as a draft in this browser as you type."}</span>
+        <p>{draft.offline ? "You are offline. Keep entering items; drafts save on this device. Reconnect before posting the invoice." : "Drafts save automatically on this device, including while offline. Resume from Sales & Billing after reopening MediBill."}</p>
         {staleDraft && <p>This invoice was changed after this draft began. Copy any needed entries, then discard this draft to load the latest invoice.</p>}
         <Button type="button" variant="outline" onClick={() => {
           if (window.confirm("Discard this unfinished draft? Posted invoices will not be deleted.") && draft.discard()) window.location.reload();

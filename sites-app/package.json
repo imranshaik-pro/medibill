@@ -12,7 +12,8 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test:billing": "node scripts/test-invoice-drafts.mjs && node scripts/test-billing-form.mjs && node scripts/test-billing-mode.mjs && node scripts/test-sales-edit-deltas.mjs && node scripts/test-document-safety.mjs && node scripts/test-stock-concurrency.mjs && node --test lib/vision-request.test.mjs"
+    "test:billing": "node scripts/test-invoice-drafts.mjs && node scripts/test-billing-form.mjs && node scripts/test-billing-mode.mjs && node scripts/test-sales-edit-deltas.mjs && node scripts/test-document-safety.mjs && node scripts/test-stock-concurrency.mjs && node --test lib/vision-request.test.mjs",
+    "test:reports": "node scripts/test-stock-reports.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

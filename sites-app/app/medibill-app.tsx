@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { draftScope } from "@/lib/invoice-drafts";
+import { StockReports } from "./stock-reports";
 import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
@@ -490,7 +491,7 @@ export function MediBillApp({
             </>
           )}{" "}
           {page === "accounting" && <Accounting data={data} />}{" "}
-          {page === "reports" && <Reports data={data} totals={totals} />}{" "}
+          {page === "reports" && <Reports data={data} />}{" "}
           {page === "admin" && <Admin data={data} user={user} />}
         </div>
       </main>
@@ -1450,40 +1451,11 @@ function Accounting({ data }: { data: Data }) {
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
-function Reports({
-  data,
-  totals,
-}: {
-  data: Data;
-  totals: { sales: number; due: number; stock: number };
-}) {
-  return (
-    <>
-      <Head title="Reports" sub="Operational and compliance summaries." />
-      <div className="report-grid">
-        {[
-          ["Sales register", money(totals.sales)],
-          ["Outstanding ageing", money(totals.due)],
-          ["Stock statement", money(totals.stock)],
-          [
-            "Expiry report",
-            String(data.products.filter((p) => p.stock > 0).length),
-          ],
-          ["GST summary", "Ready"],
-          ["Gross profit", "Live"],
-        ].map((x) => (
-          <div className="report" key={x[0]}>
-            <BarChart3 />
-            <span>
-              <b>{x[0]}</b>
-              <strong>{x[1]}</strong>
-              <small>Based on central records</small>
-            </span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
+function Reports({data}: {data: Data}) {
+  return <>
+    <Head title="Reports" sub="Generate and export stock data for your workspace." />
+    <StockReports companyName={data.tenant.companyName} />
+  </>;
 }
 function Admin({
   data,

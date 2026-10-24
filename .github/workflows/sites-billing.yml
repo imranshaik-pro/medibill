@@ -26,4 +26,5 @@ jobs:
           cache-dependency-path: sites-app/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run test:billing
+      - run: npm run test:reports
       - run: npm run build

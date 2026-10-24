@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { readInvoiceDraft, writeInvoiceDraft, removeInvoiceDraft, type InvoiceDraftState } from "@/lib/invoice-drafts";
 
 export function useInvoiceDraft(scope: string | undefined, invoiceId: string | null,
@@ -7,6 +7,7 @@ export function useInvoiceDraft(scope: string | undefined, invoiceId: string | n
   const [ready, setReady] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [offline, setOffline] = useState(false);
   const generation = useRef<string | null>(null);
   const stopped = useRef(false);
   const completed = useRef(false);
@@ -50,18 +51,32 @@ export function useInvoiceDraft(scope: string | undefined, invoiceId: string | n
     setReady(true);
     return () => { /* The persistence effect below flushes the latest entries. */ };
   }, [scope, invoiceId]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ready) return;
     persist();
+  }, [ready, state, scope, invoiceId]);
+  useEffect(() => {
+    if (!ready) return;
     const flush = () => persist();
+    const connectivity = () => {
+      setOffline(window.navigator?.onLine === false);
+      persist();
+    };
+    connectivity();
     window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("offline", connectivity);
+    window.addEventListener("online", connectivity);
     document.addEventListener("visibilitychange", flush);
     return () => {
       window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("offline", connectivity);
+      window.removeEventListener("online", connectivity);
       document.removeEventListener("visibilitychange", flush);
       persist();
     };
-  }, [ready, state, scope, invoiceId]);
+  }, [ready, scope, invoiceId]);
   function discard() {
     if (!scope) return false;
     try {
@@ -77,5 +92,5 @@ export function useInvoiceDraft(scope: string | undefined, invoiceId: string | n
     latest.current = next;
     return persist();
   }
-  return { ready, notice, error, beforeSave, discard, complete: discard };
+  return { ready, notice, error, offline, beforeSave, discard, complete: discard };
 }
