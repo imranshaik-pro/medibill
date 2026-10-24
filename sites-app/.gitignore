@@ -74,3 +74,8 @@ next-env.d.ts
 .dev.vars
 .dev.vars.*
 /wrangler.local.jsonc
+
+# The root Python ignore rule also matches this application's source directory.
+!lib/
+!lib/**/*.ts
+*.tsbuildinfo

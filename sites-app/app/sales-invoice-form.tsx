@@ -1,5 +1,6 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useInvoiceDraft } from "@/hooks/use-invoice-draft";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,21 +122,35 @@ function words(n: number) {
 }
 export function SalesInvoiceForm({
   busy,
+  billingMode = "wholesale",
   customers,
-  products,
+  products: liveProducts,
+  draftScope,
   productMasters,
   prior,
   initial,
   go,
 }: {
   busy: boolean;
+  billingMode?: "wholesale" | "retail";
+  draftScope?: string;
   customers: Customer[];
   products: Product[];
   productMasters: Master[];
   prior: Prior[];
-  initial?: { header: Record<string, any>; lines: Array<Record<string, any>> };
-  go: (b: Record<string, unknown>) => Promise<{ id: string } | undefined>;
+  initial?: { header: Record<string, any>; lines: Array<Record<string, any>>; revision?: string; editProducts?: Product[] };
+  go: (b: Record<string, unknown>, requestKey?: string) => Promise<{ id: string } | undefined>;
 }) {
+  // Original issued units belong to this invoice and are available for its edit.
+  // Aggregate by batch so repeated rows cannot independently exceed the allowance.
+  const products = useMemo(() => {
+    const map = new Map(liveProducts.map(p => [p.id, p]));
+    for (const p of initial?.editProducts || []) map.set(p.id, p);
+    const issued = new Map<string, number>();
+    for (const line of (initial?.header.id ? initial.lines : [])) issued.set(line.productId,
+      (issued.get(line.productId) || 0) + Number(line.quantity || 0) + Number(line.freeQuantity || 0));
+    return [...map.values()].map(p => ({...p, stock: p.stock + (issued.get(p.id) || 0)}));
+  }, [liveProducts, initial]);
   const now = new Date(),
     h = initial?.header,
     [head, setHead] = useState({
@@ -189,6 +204,18 @@ export function SalesInvoiceForm({
           : [],
       ),
     );
+  const [expectedRevision, setExpectedRevision] = useState(initial?.revision);
+  const [pendingSave, setPendingSave] = useState<{body:string;key:string} | undefined>();
+  const [postedId, setPostedId] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const draftState = useMemo(() => ({head, rows, acknowledged:[...acknowledgedProducts], expectedRevision, pendingSave, invoiceLabel:h?.invoiceNo}),
+    [head, rows, acknowledgedProducts, expectedRevision, pendingSave, h?.invoiceNo]);
+  const draft = useInvoiceDraft(draftScope, h?.id || null, draftState, saved => {
+    setHead(saved.head as typeof head); setRows(saved.rows as Row[]);
+    setAcknowledgedProducts(new Set(saved.acknowledged));
+    setExpectedRevision(saved.expectedRevision); setPendingSave(saved.pendingSave);
+  });
+  const staleDraft = Boolean(h?.id && expectedRevision !== initial?.revision);
   const customer = customers.find((c) => c.id === head.customerId),
     setRow = (i: number, p: Partial<Row>) =>
       setRows((x) => x.map((r, j) => (j === i ? { ...r, ...p } : r)));
@@ -199,6 +226,7 @@ export function SalesInvoiceForm({
     alertIfRequired = (p?: Product) => {
       const master = masterFor(p);
       if (
+        billingMode === "retail" &&
         master &&
         (master.isScheduleH1 ||
           master.isPrescriptionRequired ||
@@ -256,8 +284,10 @@ export function SalesInvoiceForm({
           .map((m) => [m.id, m]),
       ).values(),
     ),
-    complianceRequired = regulatedMasters.length > 0;
+    complianceRequired = billingMode === "retail" && regulatedMasters.length > 0;
   const calc = useMemo(() => {
+    const requested = new Map<string, number>();
+    for (const row of rows) requested.set(row.productId, (requested.get(row.productId) || 0) + row.quantity + row.freeQuantity);
     const lines = rows.map((r) => {
         const p = products.find((x) => x.id === r.productId),
           gross = r.quantity * r.unitRate,
@@ -272,7 +302,7 @@ export function SalesInvoiceForm({
           taxable,
           gst,
           total: round(taxable + gst),
-          invalid: Boolean(p && r.quantity + r.freeQuantity > p.stock),
+          invalid: Boolean(!p || (requested.get(r.productId) || 0) > p.stock),
         };
       }),
       lineTaxable = lines.reduce((s, r) => s + r.taxable, 0),
@@ -315,7 +345,9 @@ export function SalesInvoiceForm({
   }, [rows, products, head, customer]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting.current || postedId) return;
     setSubmitError(null);
+    if (staleDraft) { setSubmitError("This saved invoice changed since the draft was started. Keep a copy of your entries, discard this draft and reopen the latest invoice."); return; }
     if (!rows.length) {
       setSubmitError("Add at least one product row before saving.");
       return;
@@ -336,21 +368,45 @@ export function SalesInvoiceForm({
       setComplianceAlert(regulatedMasters[0]);
       return;
     }
-    try {
-    const out = await go({
+    const payload = {
       ...head,
-      complianceAcknowledged:
-        complianceRequired &&
-        regulatedMasters.every((m) => acknowledgedProducts.has(m.id)),
+      ...(h?.id ? {expectedRevision} : {}),
+      complianceAcknowledged: complianceRequired && regulatedMasters.every(m => acknowledgedProducts.has(m.id)),
       items: rows.map(({ productName, ...r }) => r),
-    });
-    if (out) window.open(`/invoices/${out.id}/print`, `_blank`, `noopener,noreferrer`);
+    };
+    const body = JSON.stringify(payload);
+    const attempt = pendingSave?.body === body ? pendingSave : {body, key:crypto.randomUUID()};
+    if (!draft.beforeSave({...draftState, pendingSave:attempt})) {
+      setSubmitError("The draft and retry key could not be saved. Resolve the draft storage warning before posting this invoice.");
+      return;
+    }
+    setPendingSave(attempt);
+    submitting.current = true;
+    try {
+      const out = await go(payload, attempt.key);
+      if (!out) { submitting.current = false; return; }
+      setPostedId(out.id);
+      draft.complete();
+      // Navigation failure must never invite another stock-changing save.
+      try { window.location.assign(`/invoices/${encodeURIComponent(out.id)}/print?print=1`); }
+      catch { setSubmitError("Invoice saved successfully. Use Open saved invoice below to print it."); }
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Unable to save invoice. Please try again.");
+      submitting.current = false;
+      setSubmitError(error instanceof Error ? error.message : "Unable to save invoice. Your draft has been kept.");
     }
   }
+
   return (
     <form className="sales-engine" onSubmit={submit}>
+      <div className="rounded-lg border p-3 text-sm" role="status" aria-live="polite">
+        <span>{draft.error || draft.notice || "Entries are saved as a draft in this browser as you type."}</span>
+        <p>{draft.offline ? "You are offline. Keep entering items; drafts save on this device. Reconnect before posting the invoice." : "Drafts save automatically on this device, including while offline. Resume from Sales & Billing after reopening MediBill."}</p>
+        {staleDraft && <p>This invoice was changed after this draft began. Copy any needed entries, then discard this draft to load the latest invoice.</p>}
+        <Button type="button" variant="outline" onClick={() => {
+          if (window.confirm("Discard this unfinished draft? Posted invoices will not be deleted.") && draft.discard()) window.location.reload();
+        }}>Discard draft</Button>
+      </div>
+      {postedId && <a href={`/invoices/${encodeURIComponent(postedId)}/print?print=1`}>Open saved invoice</a>}
       {submitError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{submitError}</p>}
       {complianceAlert && (
         <div className="compliance-alert-backdrop" role="presentation">
@@ -820,14 +876,24 @@ export function SalesInvoiceForm({
         </section>
       </div>
       <footer className="sales-actions">
-        <span>
-          {calc.invalid
+        <span role="status" aria-live="polite">
+          {complianceRequired && (!head.prescriptionDoctorName.trim() || !head.prescriptionDoctorRegistration.trim())
+            ? "Retail prescription sale: enter doctor name and registration above before saving."
+            : complianceRequired && !regulatedMasters.every((m) => acknowledgedProducts.has(m.id))
+            ? "Review the prescription warning for each selected medicine before saving."
+            : !head.customerId ? "Select a customer before saving."
+            : rows.some((r) => !r.productId || r.quantity <= 0) ? "Select a batch and enter billed quantity for every row."
+            : calc.invalid
             ? "Correct stock warnings before saving."
             : `${rows.length} line(s) ready · stock will be deducted by billed + free quantity.`}
         </span>
         <Button
+          type="submit"
           disabled={
             busy ||
+            !draft.ready ||
+            staleDraft ||
+            Boolean(postedId) ||
             calc.invalid ||
             !head.customerId ||
             (complianceRequired &&

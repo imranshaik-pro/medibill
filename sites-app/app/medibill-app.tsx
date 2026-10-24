@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { draftScope } from "@/lib/invoice-drafts";
+import { WholesaleDashboard } from "./wholesale-dashboard";
+import { PharmaReports } from "./pharma-reports";
+import { StockReports } from "./stock-reports";
 import { WorkspaceSearch } from "./workspace-search";
 import {
   AlertTriangle,
@@ -201,9 +205,10 @@ type ReturnRow = {
   returnDate: string;
 };
 type Data = {
+  billingMode?: "wholesale" | "retail";
   approvalPending?: boolean;
   tenant: { companyName: string };
-  member: { role: string; status?: string };
+  member: { id: string; tenantId: string; role: string; status?: string };
   customers: Customer[];
   productMasters: ProductMaster[];
   products: Product[];
@@ -242,6 +247,25 @@ export function MediBillApp({
   const [searchTarget, setSearchTarget] = useState<{page:string;query:string;record?:Record<string,unknown>}>({page:"",query:""});
   const [modal, setModal] = useState<Modal>(null);
   const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    if (!mobile) return;
+    const previous = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    const drawer = document.getElementById('workspace-navigation');
+    drawer?.querySelector<HTMLButtonElement>('.mobile-nav-close')?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobile(false);
+      if (event.key !== 'Tab') return;
+      const items = drawer?.querySelectorAll<HTMLElement>('button, a[href]');
+      if (!items?.length) return;
+      const first = items[0], last = items[items.length-1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', escape);
+    return () => { document.body.style.overflow = previous; previousFocus?.focus(); window.removeEventListener('keydown', escape); };
+  }, [mobile]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const load = () =>
@@ -263,7 +287,7 @@ export function MediBillApp({
   );
   // Preserve retry keys after uncertain network responses.
   const saveRequests = useRef(new Map<string,{body:string;key:string}>());
-  async function save(path: string, body: Record<string, unknown>) {
+  async function save(path: string, body: Record<string, unknown>, requestKey?: string) {
     if (
       !window.confirm(
         "Please review the entered details. Do you want to save this record?",
@@ -284,6 +308,7 @@ export function MediBillApp({
         if (fingerprint && previous?.fingerprint === fingerprint && typeof previous.key === "string") attempt = {body:serialized,key:previous.key};
       } catch { /* Storage may be disabled; in-memory retry protection remains. */ }
       if (!attempt || attempt.body !== serialized) attempt = {body:serialized,key:crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,"0")).join("")};
+      if (requestKey) attempt = {body:serialized,key:requestKey};
       saveRequests.current.set(path,attempt);
       try { if (fingerprint) sessionStorage.setItem(storageKey,JSON.stringify({fingerprint,key:attempt.key})); } catch { /* Use in-memory key. */ }
     }
@@ -350,10 +375,12 @@ export function MediBillApp({
   ] as const;
   return (
     <div className="shell pharmly-shell">
-      <aside className={mobile ? "side open" : "side"}>
+      {mobile && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobile(false)} />}
+      <aside id="workspace-navigation" className={mobile ? "side open" : "side"}>
         <div className="brand">
           <span>M+</span>MediBill <b>Pro</b>
         </div>
+        <button type="button" className="mobile-nav-close" onClick={() => setMobile(false)}>Close menu ×</button>
         <nav aria-label="Main navigation">
           {nav.map(([id, label, Icon]) => (
             <button
@@ -386,9 +413,9 @@ export function MediBillApp({
           </a>
         </div>
       </aside>
-      <main className="main">
+      <main className="main" inert={mobile}>
         <header className="top">
-          <button className="menu" aria-label="Toggle navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>
+          <button className="menu" aria-label="Toggle navigation" aria-controls="workspace-navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>
             <Menu />
           </button>
           <WorkspaceSearch navigate={(nextPage,query,record)=>{setSearchTarget({page:nextPage,query,record});setPage(nextPage);setMobile(false);}}/>
@@ -408,7 +435,7 @@ export function MediBillApp({
             </div>
           )}
           {page === "dashboard" && (
-            <Dashboard data={data} totals={totals} open={setModal} />
+            <WholesaleDashboard company={data.tenant.companyName} revision={data} open={setModal} navigate={setPage} />
           )}{" "}
           {page === "sales" && (
             <SalesRegistry
@@ -487,10 +514,14 @@ export function MediBillApp({
             </>
           )}{" "}
           {page === "accounting" && <Accounting data={data} />}{" "}
-          {page === "reports" && <Reports data={data} totals={totals} />}{" "}
+          {page === "reports" && <Reports data={data} />}{" "}
           {page === "admin" && <Admin data={data} user={user} />}
         </div>
       </main>
+      <nav className="mobile-bottom-nav" inert={mobile} aria-label="Mobile shortcuts">
+        {([['dashboard','Home',Home],['sales','Sales',ShoppingCart],['inventory','Stock',Boxes],['reports','Reports',BarChart3]] as const).map(([id,label,Icon]) => <button type="button" key={id} aria-current={page===id?'page':undefined} onClick={()=>{setSearchTarget({page:'',query:''});setPage(id);setMobile(false);}}><Icon aria-hidden="true"/><span>{label}</span></button>)}
+        <button type="button" aria-expanded={mobile} aria-controls="workspace-navigation" onClick={()=>setMobile(!mobile)}><Menu aria-hidden="true"/><span>More</span></button>
+      </nav>
       <Entry
         type={modal}
         close={() => setModal(null)}
@@ -637,236 +668,6 @@ function PendingApproval({ user }: { user: { name: string; email: string } }) {
     </main>
   );
 }
-function Dashboard({
-  data,
-  totals,
-  open,
-}: {
-  data: Data;
-  totals: { sales: number; due: number; stock: number };
-  open: (m: Modal) => void;
-}) {
-  const today = new Date().toISOString().slice(0, 10),
-    month = today.slice(0, 7),
-    todayRows = data.invoices.filter((x) => x.invoiceDate === today),
-    monthRows = data.invoices.filter((x) => x.invoiceDate.startsWith(month));
-  const todaySales = todayRows.reduce((a, x) => a + x.amount, 0),
-    monthlySales = monthRows.reduce((a, x) => a + x.amount, 0),
-    collections = todayRows
-      .filter((x) => x.status === "Paid")
-      .reduce((a, x) => a + x.amount, 0),
-    todayPurchases =
-      data.purchases
-        .filter((x) => x.purchaseDate === today)
-        .reduce((a, x) => a + x.amount, 0) +
-      (data.purchaseInwards || [])
-        .filter((x) => x.invoiceDate === today)
-        .reduce((a, x) => a + x.grandTotal, 0),
-    payables = data.suppliers.reduce((a, x) => a + x.outstanding, 0);
-  const avgMargin = data.products.length
-    ? data.products.reduce(
-        (a, p) => a + Math.max(0, p.mrp - p.purchaseRate) / Math.max(1, p.mrp),
-        0,
-      ) / data.products.length
-    : 0;
-  const now = new Date(),
-    near = new Date(now);
-  near.setMonth(near.getMonth() + 3);
-  const expired = data.products.filter(
-      (p) => p.stock > 0 && new Date(p.expiry + "-01") < now,
-    ).length,
-    nearExpiry = data.products.filter((p) => {
-      const d = new Date(p.expiry + "-01");
-      return p.stock > 0 && d >= now && d <= near;
-    }).length,
-    low = data.products.filter((p) => p.stock < 50).length;
-  const trend = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    return {
-      day: d.toLocaleDateString("en-IN", { weekday: "short" }),
-      sales: data.invoices
-        .filter((x) => x.invoiceDate === key)
-        .reduce((a, x) => a + x.amount, 0),
-    };
-  });
-  return (
-    <>
-      <section className="dash-hero">
-        <div>
-          <p>WELCOME BACK</p>
-          <h1>Run today&apos;s business from one screen</h1>
-          <span>
-            Billing, stock, collections and risk signals for{" "}
-            {data.tenant.companyName}.
-          </span>
-        </div>
-        <div>
-          <Button className="hero-primary" onClick={() => open("invoice")}>
-            <Plus />
-            Create sale
-          </Button>
-          <Button className="hero-secondary" onClick={() => open("purchase")}>
-            <PackagePlus />
-            Record purchase
-          </Button>
-        </div>
-      </section>
-      <div className="section-title">
-        <div>
-          <h2>Business overview</h2>
-          <p>Operational numbers from your current workspace records.</p>
-        </div>
-        <span className="live-pill">● LIVE</span>
-      </div>
-      <div className="metrics usp-metrics">
-        <Metric
-          l="Today’s sales"
-          v={money(todaySales)}
-          m={todayRows.length + " invoices billed today"}
-          i={<IndianRupee />}
-        />
-        <Metric
-          l="Today’s collections"
-          v={money(collections)}
-          m="Paid invoices received today"
-          i={<CircleDollarSign />}
-        />
-        <Metric
-          l="Outstanding credit"
-          v={money(totals.due)}
-          m="Customer receivables"
-          i={<Users />}
-        />
-        <Metric
-          l="Supplier payables"
-          v={money(payables)}
-          m="Outstanding supplier balance"
-          i={<WalletCards />}
-        />
-        <Metric
-          l="Current stock value"
-          v={money(totals.stock)}
-          m={data.products.reduce((a, p) => a + p.stock, 0) + " units in stock"}
-          i={<Boxes />}
-        />
-        <Metric
-          l="Today’s purchases"
-          v={money(todayPurchases)}
-          m="Purchase value recorded today"
-          i={<ShoppingCart />}
-        />
-        <Metric
-          l="Monthly sales"
-          v={money(monthlySales)}
-          m="Current calendar month"
-          i={<BarChart3 />}
-        />
-        <Metric
-          l="Est. gross profit"
-          v={money(todaySales * avgMargin)}
-          m="Estimated from product margins"
-          i={<TrendingUp />}
-        />
-      </div>
-      <div className="insight-grid">
-        <section className="panel chart-panel">
-          <div className="panel-head">
-            <div>
-              <h3>7-day sales pulse</h3>
-              <p>Daily invoice value</p>
-            </div>
-          </div>
-          <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="#e7efed"
-                />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} />
-                <YAxis hide />
-                <Tooltip formatter={(v) => money(Number(v))} />
-                <Area
-                  type="monotone"
-                  dataKey="sales"
-                  stroke="#0b7e75"
-                  strokeWidth={3}
-                  fill="#d8eee8"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-        <section className="panel attention">
-          <div className="panel-head">
-            <div>
-              <h3>Needs attention</h3>
-              <p>Act before these affect billing.</p>
-            </div>
-          </div>
-          <AlertRow
-            i={<PackagePlus />}
-            t="Low stock items"
-            v={low}
-            tone="amber"
-          />
-          <AlertRow
-            i={<Clock3 />}
-            t="Near-expiry batches"
-            v={nearExpiry}
-            tone="amber"
-          />
-          <AlertRow
-            i={<AlertTriangle />}
-            t="Expired batches"
-            v={expired}
-            tone="red"
-          />
-        </section>
-      </div>
-      <div className="dash-grid">
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h3>Recent invoices</h3>
-              <p>Latest billing activity</p>
-            </div>
-          </div>
-          <Invoices rows={data.invoices.slice(0, 5)} />
-        </section>
-        <section className="panel attention">
-          <div className="panel-head">
-            <div>
-              <h3>Quick actions</h3>
-              <p>Your common daily tasks</p>
-            </div>
-          </div>
-          <Action
-            i={<ShoppingCart />}
-            t="Create sale invoice"
-            d="Bill a customer and track payment."
-            c={() => open("invoice")}
-          />
-          <Action
-            i={<Users />}
-            t="Add customer"
-            d="Create a new firm profile."
-            c={() => open("customer")}
-          />
-          <Action
-            i={<PackagePlus />}
-            t="Add product batch"
-            d="Record stock, cost and expiry."
-            c={() => open("product")}
-          />
-        </section>
-      </div>
-    </>
-  );
-}
 function Head({
   title,
   sub,
@@ -924,7 +725,7 @@ function ProductOverview({ data, categories = true }: { data: Data; categories?:
     entries.set(key,entry);
   }
   const products = [...entries.values()];
-  const low = products.filter(p => p.stock > 0 && p.stock < 50).length;
+  const low = products.filter(p => p.stock > 0 && p.stock <= 10).length;
   const out = products.filter(p => p.stock <= 0).length;
   const categoryCounts = new Map<string,{name:string;total:number;available:number}>();
   for (const p of products) {
@@ -1447,40 +1248,11 @@ function Accounting({ data }: { data: Data }) {
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
-function Reports({
-  data,
-  totals,
-}: {
-  data: Data;
-  totals: { sales: number; due: number; stock: number };
-}) {
-  return (
-    <>
-      <Head title="Reports" sub="Operational and compliance summaries." />
-      <div className="report-grid">
-        {[
-          ["Sales register", money(totals.sales)],
-          ["Outstanding ageing", money(totals.due)],
-          ["Stock statement", money(totals.stock)],
-          [
-            "Expiry report",
-            String(data.products.filter((p) => p.stock > 0).length),
-          ],
-          ["GST summary", "Ready"],
-          ["Gross profit", "Live"],
-        ].map((x) => (
-          <div className="report" key={x[0]}>
-            <BarChart3 />
-            <span>
-              <b>{x[0]}</b>
-              <strong>{x[1]}</strong>
-              <small>Based on central records</small>
-            </span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
+function Reports({data}: {data: Data}) {
+  return <>
+    <Head title="Reports" sub="Generate and export stock data for your workspace." />
+    <PharmaReports /><StockReports companyName={data.tenant.companyName} />
+  </>;
 }
 function Admin({
   data,
@@ -1565,7 +1337,7 @@ function Entry({
   close: () => void;
   data: Data;
   busy: boolean;
-  save: (p: string, b: Record<string, unknown>) => Promise<any>;
+  save: (p: string, b: Record<string, unknown>, requestKey?: string) => Promise<any>;
 }) {
   const titles: Record<Exclude<Modal, null>, string> = {
     customer: "Add customer",
@@ -1609,12 +1381,14 @@ function Entry({
         )}{" "}
         {type === "invoice" && (
           <SalesInvoiceForm
+            billingMode={data.billingMode}
+            draftScope={draftScope(data.member)}
             busy={busy}
             customers={data.customers}
             products={data.products}
             productMasters={data.productMasters}
             prior={data.invoiceLines}
-            go={(b) => save("/api/invoices", b)}
+            go={(b, key) => save("/api/invoices", b, key)}
           />
         )}{" "}
         {type === "supplier" && (

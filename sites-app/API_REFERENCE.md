@@ -21,8 +21,8 @@ All business routes require an authenticated user and enforce the user's active 
 | PATCH | `/api/purchase-inwards/:id` | Complete revised purchase payload | Updated purchase with reversed/reapplied stock |
 | GET | `/api/purchase-inwards/:id/document` | None | Original PDF/image/JSON object stream |
 | POST | `/api/invoices` | Customer/header/items/charges/discount/tax payload | Created sales invoice with batch deductions |
-| GET | `/api/invoices/:id` | None | Complete invoice/customer/lines/profile payload |
-| PATCH | `/api/invoices/:id` | Complete revised sales payload | Updated invoice with stock reconciliation |
+| GET | `/api/invoices/:id` | None | Invoice/customer/lines/profile plus `revision` and current `editProducts` |
+| PATCH | `/api/invoices/:id` | Complete revised sales payload plus `expectedRevision` from GET | Updated invoice; 409 for stale/missing revision. Stock changes by old issued units minus new issued units. |
 | POST | `/api/payments` | `{partyId, partyType, amount, method, paymentDate}` | Created receipt/payment and updated balance |
 | POST | `/api/returns` | `{partyId, type, referenceNo, amount, reason, returnDate}` | Created return and updated balances |
 | GET | `/api/agency-profile` | None | Firm identity, tax, contact, bank and print settings |

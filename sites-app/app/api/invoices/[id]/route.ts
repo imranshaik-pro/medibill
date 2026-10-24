@@ -1,6 +1,19 @@
+import { InvoiceEditConflict } from "@/lib/medibill";
 import { InvoiceDeletionError } from "@/lib/invoice-deletion";
 import { deleteSalesInvoice } from "@/lib/medibill";
-import{NextResponse}from"next/server";import{getChatGPTUser}from"@/app/chatgpt-auth";import{getSalesInvoice,updateSalesInvoice}from"@/lib/medibill";type C={params:Promise<{id:string}>};export async function GET(_:Request,{params}:C){const u=await getChatGPTUser();if(!u)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await getSalesInvoice(u.userId,(await params).id))}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Not found"},{status:404})}}export async function PATCH(r:Request,{params}:C){const u=await getChatGPTUser();if(!u)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await updateSalesInvoice(u.userId,(await params).id,await r.json()))}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Unable to update invoice"},{status:400})}}
+import{NextResponse}from"next/server";import{getChatGPTUser}from"@/app/chatgpt-auth";import{getSalesInvoice,updateSalesInvoice}from"@/lib/medibill";type C={params:Promise<{id:string}>};export async function GET(_:Request,{params}:C){const u=await getChatGPTUser();if(!u)return NextResponse.json({error:"Unauthorized"},{status:401});try{return NextResponse.json(await getSalesInvoice(u.userId,(await params).id))}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Not found"},{status:404})}}export async function PATCH(r: Request, {params}: C) {
+  const u = await getChatGPTUser();
+  if (!u) return NextResponse.json({error:"Unauthorized"},{status:401});
+  try {
+    const input = await r.json() as {expectedRevision?:unknown};
+    if (!input || typeof input.expectedRevision !== "string" || !/^[a-f0-9]{64}$/.test(input.expectedRevision))
+      return NextResponse.json({error:"Refresh the application and reopen this invoice before editing. Your draft has been kept."},{status:409});
+    return NextResponse.json(await updateSalesInvoice(u.userId,(await params).id,input as Parameters<typeof updateSalesInvoice>[2]));
+  } catch(e) {
+    return NextResponse.json({error:e instanceof Error?e.message:"Unable to update invoice"},
+      {status:e instanceof InvoiceEditConflict || (e instanceof Error && /record changed/.test(e.message)) ? 409 : 400});
+  }
+}
 
 export async function DELETE(request: Request, {params}: C) {
   const user = await getChatGPTUser();

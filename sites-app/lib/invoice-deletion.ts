@@ -45,6 +45,7 @@ export async function deleteInvoiceRecord(
   if (input?.confirm_delete !== true) throw new InvoiceDeletionError('Explicit deletion confirmation is required.', 400);
   const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
   if (reason.length < 3 || reason.length > 300) throw new InvoiceDeletionError('Enter a deletion reason between 3 and 300 characters.', 400);
+  if ((kind as string) === 'sale') throw new InvoiceDeletionError('Posted sales invoices are locked against deletion. Use the authorized cancellation or credit-note workflow. Delete unfinished entries from Invoice drafts instead.', 409);
   const tenant = member.tenantId;
   const table = kind === 'sale' ? 'invoices' : 'purchase_inwards';
   const lineTable = kind === 'sale' ? 'invoice_lines' : 'purchase_inward_items';
