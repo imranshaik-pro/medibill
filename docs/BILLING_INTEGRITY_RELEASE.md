@@ -39,10 +39,10 @@ Custom roles are not automatically granted new capabilities. Existing inventory-
 4. Reconcile stock, invoices, return caps, receipts, outstanding and payment totals. Verify old browser clients and long/physical prints.
 5. Test backup restoration and document recovery. Record achievable RPO/RTO; backups alone do not guarantee zero loss of acknowledged commits.
 
-Commands (use the pinned requirements and production secrets provided by the hosting environment):
+Staging test/build commands (DATABASE_URL must point to the isolated test database):
 
 ```bash
-# Backend release job, once per environment; never once per replica.
+# Isolated staging/test job.
 cd backend
 pip install -r requirements.txt
 alembic current
@@ -57,7 +57,18 @@ npm test
 npm run build
 ```
 
-`pytest` creates test tenants and transactions: do NOT run it against production. The migration job runs only `alembic` commands, after tests have passed elsewhere. See CI for PostgreSQL 16 service configuration.
+`pytest` creates test tenants and transactions: do NOT run it against production. See CI for PostgreSQL 16 service configuration.
+
+The production migration job runs once, with its hosting-provided DATABASE_URL, only after tests pass elsewhere:
+
+```bash
+cd backend
+alembic current
+alembic upgrade head
+alembic check
+```
+
+Do not run schema migration commands independently on each replica.
 
 ## Production rollout
 
