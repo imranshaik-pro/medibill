@@ -57,8 +57,9 @@ logs/
 .coverage
 htmlcov/
 
-# Alembic
-versions/
+# Alembic revisions are source-controlled.
+!backend/alembic/versions/
+!backend/alembic/versions/*.py
 
 # Docker
 .dockerignore

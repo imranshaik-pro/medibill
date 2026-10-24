@@ -34,14 +34,14 @@ def money(value) -> Decimal:
 def create_supplier_payment(
     data: SupplierPaymentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission("manage_inventory")),
+    current_user: User = Depends(require_permission("pay_supplier")),
 ):
     if data.payment_date > date.today():
         raise HTTPException(status_code=400, detail="Payment date cannot be in the future")
     supplier = db.query(Supplier).filter(
         Supplier.id == data.supplier_id,
         Supplier.company_id == current_user.company_id,
-    ).first()
+    ).with_for_update().first()
     if not supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
     if data.purchase_invoice_id is not None:

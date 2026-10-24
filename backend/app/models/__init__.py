@@ -1,5 +1,6 @@
 """Import all SQLAlchemy models so they are registered in Base.metadata."""
 
+from app.models.command_receipt import CommandReceipt
 from app.models.company import Company
 from app.models.user import User, Role, Permission, UserRole
 from app.models.customer import Customer
@@ -20,7 +21,7 @@ from app.models.returns import SalesReturn, SalesReturnItem, PurchaseReturn, Pur
 from app.models.password_reset import PasswordResetToken
 
 __all__ = [
-    "Company", "User", "Role", "Permission", "UserRole", "Customer", "Product",
+    "CommandReceipt", "Company", "User", "Role", "Permission", "UserRole", "Customer", "Product",
     "Supplier", "Manufacturer", "Category", "Batch", "InventoryTransaction",
     "CurrentStock", "SalesInvoice", "SalesInvoiceItem", "PurchaseInvoice",
     "PurchaseInvoiceItem", "Payment", "SupplierPayment", "AuditLog", "CustomerProductPrice",

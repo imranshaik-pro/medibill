@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -16,6 +16,9 @@ from app.models.product import Product
 from app.models.returns import SalesReturn
 from app.models.sales_invoice import SalesInvoice, SalesInvoiceItem
 from app.models.user import User
+from app.services.commands import begin_invoice_command
+from app.services.audit import write_audit
+from app.api.v1.documents import get_sales_invoice_document
 from app.schemas.sales import PaymentCreate, SalesInvoiceCreate, SalesInvoiceResponse, SalesItemResponse
 
 router = APIRouter()
@@ -80,19 +83,19 @@ def _invoice_response(db: Session, invoice: SalesInvoice) -> SalesInvoiceRespons
             sgst=item.sgst,
             igst=item.igst,
             net_amount=item.net_amount,
-            batch_number=batches.get(item.batch_id).batch_number if batches.get(item.batch_id) else None,
-            product_name=products.get(item.product_id).product_name if products.get(item.product_id) else None,
+            batch_number=(invoice.document_snapshot["lines"][index]["batch_number"] if invoice.document_snapshot else (batches.get(item.batch_id).batch_number if batches.get(item.batch_id) else None)),
+            product_name=(invoice.document_snapshot["lines"][index]["product_name"] if invoice.document_snapshot else (products.get(item.product_id).product_name if products.get(item.product_id) else None)),
         )
-        for item in invoice.items
+        for index, item in enumerate(invoice.items)
     ]
     return SalesInvoiceResponse(
         id=invoice.id, company_id=invoice.company_id, invoice_number=invoice.invoice_number,
         invoice_date=invoice.invoice_date, customer_id=invoice.customer_id, subtotal=invoice.subtotal,
         discount_total=invoice.discount_total, taxable_total=invoice.taxable_total, cgst=invoice.cgst,
         sgst=invoice.sgst, igst=invoice.igst, round_off=invoice.round_off, grand_total=invoice.grand_total,
-        payment_status=invoice.payment_status, amount_paid=amount_paid, balance_due=balance_due,
+        payment_status=("Paid" if balance_due == 0 else ("Partial" if amount_paid > 0 else "Pending")), amount_paid=amount_paid, balance_due=balance_due,
         notes=invoice.notes, created_by=invoice.created_by, created_at=invoice.created_at,
-        updated_at=invoice.updated_at, customer_name=invoice.customer.customer_name if invoice.customer else None,
+        updated_at=invoice.updated_at, customer_name=(invoice.document_snapshot["customer_name"] if invoice.document_snapshot else (invoice.customer.customer_name if invoice.customer else None)),
         items=items,
     )
 
@@ -104,14 +107,26 @@ def _load_invoice(db: Session, company_id: int, invoice_id: int) -> SalesInvoice
 
 
 @router.post("/invoices", response_model=SalesInvoiceResponse, status_code=status.HTTP_201_CREATED)
-def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db), current_user: User = Depends(require_permission("manage_inventory"))):
+def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db), current_user: User = Depends(require_permission("create_invoice")), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    for flag, capability in ((data.override_credit_limit, "override_credit_limit"), (data.override_minimum_sale_rate, "override_minimum_sale_rate")):
+        if flag:
+            require_permission(capability)(current_user)
+            if not (data.notes or "").strip():
+                raise HTTPException(400, "An override reason is required in notes")
+    if data.override_expired_batch:
+        raise HTTPException(400, "Expired stock cannot be sold; use an inventory write-off")
+    if data.amount_paid > 0:
+        require_permission("collect_payment")(current_user)
+    receipt, replay = begin_invoice_command(db, current_user, idempotency_key, data)
+    if replay is not None:
+        return SalesInvoiceResponse.model_validate(replay)
     if data.invoice_date > date.today():
         raise HTTPException(status_code=400, detail="Invoice date cannot be in the future")
-    customer = db.query(Customer).filter(Customer.id == data.customer_id, Customer.company_id == current_user.company_id, Customer.is_active.is_(True)).first()
+    customer = db.query(Customer).filter(Customer.id == data.customer_id, Customer.company_id == current_user.company_id, Customer.is_active.is_(True)).with_for_update().first()
     if not customer:
         raise HTTPException(status_code=400, detail="Customer is not available")
     if db.query(SalesInvoice).filter(SalesInvoice.company_id == current_user.company_id, SalesInvoice.invoice_number == data.invoice_number).first():
-        raise HTTPException(status_code=409, detail="Invoice number already exists for this company")
+        raise HTTPException(status_code=409, detail="Invoice number already exists for this company", headers={"X-Command-Outcome": "rejected"})
 
     product_ids = {item.product_id for item in data.items}
     batch_ids = {item.batch_id for item in data.items}
@@ -135,6 +150,10 @@ def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db)
 
     try:
         db.flush()
+        db.query(CurrentStock).filter(
+            CurrentStock.company_id == current_user.company_id,
+            CurrentStock.batch_id.in_(batch_ids),
+        ).order_by(CurrentStock.batch_id, CurrentStock.id).with_for_update().all()
         subtotal = discount_total = taxable_total = Decimal("0")
         cgst_total = sgst_total = igst_total = Decimal("0")
         for item in data.items:
@@ -200,15 +219,31 @@ def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db)
         if amount_paid > 0:
             db.add(Payment(company_id=current_user.company_id, sales_invoice_id=invoice.id, customer_id=customer.id, amount=amount_paid, payment_date=data.invoice_date, payment_mode=data.payment_mode, reference_number=data.payment_reference, created_by=current_user.id))
         invoice.payment_status = "Paid" if amount_paid >= invoice.grand_total else ("Partial" if amount_paid > 0 else "Pending")
+        db.flush()
+        invoice.document_snapshot = get_sales_invoice_document(invoice.id, db, current_user).model_dump(mode="json")
+        result = _invoice_response(db, invoice)
+        if receipt is not None:
+            receipt.response = result.model_dump(mode="json")
+            db.add(receipt)
+        write_audit(db, company_id=current_user.company_id, user_id=current_user.id,
+                    action="SALE_POST", entity_type="SalesInvoice", entity_id=invoice.id,
+                    new_value={"invoice_number": invoice.invoice_number, "total": str(invoice.grand_total),
+                               "credit_override": data.override_credit_limit, "rate_override": data.override_minimum_sale_rate,
+                               "reason": data.notes if (data.override_credit_limit or data.override_minimum_sale_rate) else None})
         db.commit()
-    except HTTPException:
-        db.rollback(); raise
+    except HTTPException as exc:
+        db.rollback()
+        # This transaction did not commit. Key/hash conflicts are raised by
+        # begin_invoice_command outside this block and must stay unresolved.
+        if exc.status_code == 409:
+            exc.headers = {**(exc.headers or {}), "X-Command-Outcome": "rejected"}
+        raise
     except IntegrityError:
-        db.rollback(); raise HTTPException(status_code=409, detail="Sale could not be posted because of a duplicate or conflicting record")
+        db.rollback(); raise HTTPException(status_code=409, detail="Sale could not be posted because of a duplicate or conflicting record", headers={"X-Command-Outcome": "rejected"})
     except Exception:
         db.rollback(); raise HTTPException(status_code=500, detail="Sale could not be posted")
 
-    return _invoice_response(db, _load_invoice(db, current_user.company_id, invoice.id))
+    return result
 
 
 @router.get("/invoices", response_model=list[SalesInvoiceResponse])
@@ -230,7 +265,11 @@ def get_sales_invoice(invoice_id: int, db: Session = Depends(get_db), current_us
 
 
 @router.post("/invoices/{invoice_id}/payments", response_model=SalesInvoiceResponse)
-def record_payment(invoice_id: int, data: PaymentCreate, db: Session = Depends(get_db), current_user: User = Depends(require_permission("manage_inventory"))):
+def record_payment(invoice_id: int, data: PaymentCreate, db: Session = Depends(get_db), current_user: User = Depends(require_permission("collect_payment"))):
+    # Same account -> invoice -> stock lock order as sale and return posting.
+    parent = _load_invoice(db, current_user.company_id, invoice_id)
+    if not parent: raise HTTPException(status_code=404, detail="Sales invoice not found")
+    db.query(Customer).filter(Customer.id == parent.customer_id, Customer.company_id == current_user.company_id).with_for_update().one()
     invoice = db.query(SalesInvoice).filter(SalesInvoice.id == invoice_id, SalesInvoice.company_id == current_user.company_id).with_for_update().first()
     if not invoice: raise HTTPException(status_code=404, detail="Sales invoice not found")
     if data.payment_date > date.today(): raise HTTPException(status_code=400, detail="Payment date cannot be in the future")
@@ -238,7 +277,13 @@ def record_payment(invoice_id: int, data: PaymentCreate, db: Session = Depends(g
     if money(data.amount) > balance_due: raise HTTPException(status_code=400, detail="Payment exceeds invoice balance")
     try:
         db.add(Payment(company_id=current_user.company_id, sales_invoice_id=invoice.id, customer_id=invoice.customer_id, amount=money(data.amount), payment_date=data.payment_date, payment_mode=data.payment_mode, reference_number=data.reference_number, notes=data.notes, created_by=current_user.id))
-        new_paid = money(amount_paid + data.amount); invoice.payment_status = "Paid" if new_paid >= money(invoice.grand_total) else "Partial"; db.commit()
+        new_paid = money(amount_paid + data.amount)
+        invoice.payment_status = "Paid" if money(data.amount) == balance_due else "Partial"
+        db.flush()
+        write_audit(db, company_id=current_user.company_id, user_id=current_user.id,
+                    action="CUSTOMER_PAYMENT", entity_type="SalesInvoice", entity_id=invoice.id,
+                    new_value={"amount": str(money(data.amount)), "total_paid": str(new_paid)})
+        db.commit()
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="Payment could not be recorded because of a conflicting record")
     except Exception:

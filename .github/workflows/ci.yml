@@ -70,7 +70,7 @@ jobs:
         run: alembic check
       - name: Run PostgreSQL E2E tests
         working-directory: backend
-        run: pytest -q tests/test_postgres_e2e.py
+        run: pytest -q tests
 
   frontend-production-build:
     runs-on: ubuntu-latest
@@ -86,6 +86,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install
+      - name: Test retry recovery
+        working-directory: frontend
+        run: npm test
       - name: Type-check and build frontend
         working-directory: frontend
         run: npm run build

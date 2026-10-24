@@ -50,7 +50,7 @@ def require_permission(permission_name: str) -> Callable:
 
     def permission_dependency(current_user: User = Depends(get_current_user)) -> User:
         has_permission = any(
-            role.is_active and any(permission.name == permission_name for permission in role.permissions)
+            role.company_id == current_user.company_id and role.is_active and any(permission.name == permission_name for permission in role.permissions)
             for role in current_user.roles
         )
         if not has_permission:
