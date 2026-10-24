@@ -39,3 +39,19 @@ test('server rejection releases invalid payload; 5xx preserves uncertain outcome
   const uncertain=harness({createSale:async()=>{throw {response:{status:500}}}})
   await assert.rejects(uncertain.postSale('A:1',{invoice_number:'I-1'}));assert.equal(uncertain.store.size,1)
 })
+test('confirmed 409 releases the invoice so a corrected number can be posted', async () => {
+  let calls=0
+  const h=harness({createSale:async()=>{
+    if (++calls===1) throw {response:{status:409,headers:{'x-command-outcome':'rejected'}}}
+    return {id:43}
+  }})
+  await assert.rejects(h.postSale('A:1',{invoice_number:'duplicate'}))
+  assert.equal(h.pendingSale('A:1'),null)
+  assert.equal((await h.postSale('A:1',{invoice_number:'corrected'})).id,43)
+})
+test('unmarked 409 and idempotency mismatch keep original command for recovery', async () => {
+  const h=harness({createSale:async()=>{throw {response:{status:409}}}})
+  await assert.rejects(h.postSale('A:1',{invoice_number:'I-1'}))
+  assert.notEqual(h.pendingSale('A:1'),null)
+  await assert.rejects(h.postSale('A:1',{invoice_number:'I-2'}),/unresolved/)
+})

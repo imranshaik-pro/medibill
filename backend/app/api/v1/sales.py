@@ -126,7 +126,7 @@ def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db)
     if not customer:
         raise HTTPException(status_code=400, detail="Customer is not available")
     if db.query(SalesInvoice).filter(SalesInvoice.company_id == current_user.company_id, SalesInvoice.invoice_number == data.invoice_number).first():
-        raise HTTPException(status_code=409, detail="Invoice number already exists for this company")
+        raise HTTPException(status_code=409, detail="Invoice number already exists for this company", headers={"X-Command-Outcome": "rejected"})
 
     product_ids = {item.product_id for item in data.items}
     batch_ids = {item.batch_id for item in data.items}
@@ -231,10 +231,15 @@ def create_sales_invoice(data: SalesInvoiceCreate, db: Session = Depends(get_db)
                                "credit_override": data.override_credit_limit, "rate_override": data.override_minimum_sale_rate,
                                "reason": data.notes if (data.override_credit_limit or data.override_minimum_sale_rate) else None})
         db.commit()
-    except HTTPException:
-        db.rollback(); raise
+    except HTTPException as exc:
+        db.rollback()
+        # This transaction did not commit. Key/hash conflicts are raised by
+        # begin_invoice_command outside this block and must stay unresolved.
+        if exc.status_code == 409:
+            exc.headers = {**(exc.headers or {}), "X-Command-Outcome": "rejected"}
+        raise
     except IntegrityError:
-        db.rollback(); raise HTTPException(status_code=409, detail="Sale could not be posted because of a duplicate or conflicting record")
+        db.rollback(); raise HTTPException(status_code=409, detail="Sale could not be posted because of a duplicate or conflicting record", headers={"X-Command-Outcome": "rejected"})
     except Exception:
         db.rollback(); raise HTTPException(status_code=500, detail="Sale could not be posted")
 

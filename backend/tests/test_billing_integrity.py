@@ -200,3 +200,17 @@ def test_audit_and_stock_rollback_when_snapshot_fails(tenant,monkeypatch):
     with SessionLocal() as db:
         assert db.query(SalesInvoice).filter_by(company_id=t['user']['company_id']).count()==0
         assert db.query(CommandReceipt).filter_by(company_id=t['user']['company_id']).count()==0
+
+
+def test_conflict_outcome_header_distinguishes_rejection_from_key_mismatch(tenant):
+    t=tenant;payload=t['payload']();headers=dict(t['h'],**{'Idempotency-Key':uuid4().hex})
+    post('sales/invoices',headers,payload)
+    rejected=client.post('/api/v1/sales/invoices',headers=dict(t['h'],**{'Idempotency-Key':uuid4().hex}),json=payload)
+    assert rejected.status_code==409 and rejected.headers['X-Command-Outcome']=='rejected'
+    mismatch=client.post('/api/v1/sales/invoices',headers=headers,json=dict(payload,notes='changed'))
+    assert mismatch.status_code==409 and 'X-Command-Outcome' not in mismatch.headers
+    stock_rejected=client.post('/api/v1/sales/invoices',headers=dict(t['h'],**{'Idempotency-Key':uuid4().hex}),json=t['payload'](quantity=11))
+    assert stock_rejected.status_code==409 and stock_rejected.headers['X-Command-Outcome']=='rejected'
+    cors=client.post('/api/v1/sales/invoices',headers=dict(t['h'],Origin='http://localhost:5173'),json=payload)
+    assert cors.status_code==409 and 'X-Command-Outcome' in cors.headers['access-control-expose-headers']
+    assert stock(t)==9

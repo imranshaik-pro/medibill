@@ -21,7 +21,13 @@ export async function postSale(scope: string, payload?: Record<string, unknown>)
     localStorage.removeItem(storageKey(scope))
     return result
   } catch (error: any) {
-    if ([400, 422].includes(error?.response?.status)) localStorage.removeItem(storageKey(scope))
+    const response = error?.response
+    // Clear a 409 only when the server confirms the command was rejected.
+    // Unmarked conflicts (including key/hash mismatches) stay recoverable.
+    if ([400, 422].includes(response?.status) ||
+        (response?.status === 409 && response?.headers?.['x-command-outcome'] === 'rejected')) {
+      localStorage.removeItem(storageKey(scope))
+    }
     throw error
   }
 }
