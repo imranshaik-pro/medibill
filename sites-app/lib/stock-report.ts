@@ -29,18 +29,34 @@ export const stockReportPresets = {
   full: { label: "Full stock statement", columns: stockReportColumns.map(c => c.key), productsOnly: false },
 } satisfies Record<string, {label: string; columns: StockReportColumn[]; productsOnly: boolean}>;
 
+export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
+
+export function indiaBusinessDate(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+// Explicit dates retain their day; month-only dates expire at month end.
+export function stockExpiryTimestamp(value: string) {
+  const iso = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(value.trim());
+  const short = /^(\d{2})\/(\d{2}|\d{4})$/.exec(value.trim());
+  if (!iso && !short) return NaN;
+  let year = Number(iso ? iso[1] : short![2]);
+  if (year < 100) year += 2000;
+  const month = Number(iso ? iso[2] : short![1]);
+  if (month < 1 || month > 12) return NaN;
+  const day = iso?.[3] ? Number(iso[3]) : new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const result = Date.UTC(year, month - 1, day);
+  const date = new Date(result);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? result : NaN;
+}
+
 export function selectStockReport(products: StockReportProduct[], options: StockReportOptions) {
   const tokens = options.search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const now = new Date();
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  const expiryDay = (s:string) => {
-    let y:number,m:number;const iso=/^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(s), short=/^(\d{2})\/(\d{2}|\d{4})$/.exec(s);
-    if(iso){y=Number(iso[1]);m=Number(iso[2])}else if(short){y=Number(short[2]);if(y<100)y+=2000;m=Number(short[1])}else return NaN;
-    return m>=1&&m<=12?Date.UTC(y,m,0):NaN;
-  };
+  const today = Date.parse(indiaBusinessDate() + 'T00:00:00Z');
+  const expiryDay = stockExpiryTimestamp;
   const matches = products.filter(p =>
     (!options.condition || options.condition === 'all' ||
-      (options.condition === 'low' && p.stock <= (options.lowThreshold ?? 10)) ||
+      (options.condition === 'low' && p.stock <= (options.lowThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD)) ||
       (options.condition === 'near' && p.stock > 0 && expiryDay(p.expiry)>=today && expiryDay(p.expiry)<=today+90*86400000) ||
       (options.condition === 'expired' && p.stock > 0 && expiryDay(p.expiry)<today)) &&
     (options.availability === "all" || (options.availability === "available" ? p.stock > 0 : p.stock <= 0)) &&

@@ -30,13 +30,21 @@ try {
   '@/app/chatgpt-auth':'export const getChatGPTUser=async()=>globalThis.__reportUser;',
   'next/server':'export const NextResponse={json:(body,init)=>Response.json(body,init)};',
  };
- for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['lib/pharma-report-data.ts','pharma-data'],['lib/pharma-reports.ts','pharma'],['lib/invoice-deletion.ts','deletion'],['app/api/reports/stock/route.ts','route'],['app/api/dashboard/route.ts','dashboard-route'],['app/stock-reports.tsx','ui']]) {
+ for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['lib/pharma-report-data.ts','pharma-data'],['lib/pharma-reports.ts','pharma'],['lib/invoice-deletion.ts','deletion'],['app/api/reports/stock/route.ts','route'],['app/api/dashboard/route.ts','dashboard-route'],['app/stock-reports.tsx','ui'],['app/wholesale-dashboard.tsx','dashboard-ui']]) {
   await build({entryPoints:[root+entry],outfile:temp+'/'+name+'.mjs',bundle:true,platform:'node',format:'esm',packages:'external',jsx:'automatic',plugins:[{name:'runtime',setup(b){
    b.onResolve({filter:/^(cloudflare:workers|@\/db|@\/app\/chatgpt-auth|next\/server)$/},args=>({path:args.path,namespace:'test'}));
    b.onLoad({filter:/.*/,namespace:'test'},args=>({contents:shims[args.path],loader:'js'}));
   }}]});
  }
  const report=await import(pathToFileURL(temp+'/report.mjs'));
+ assert.equal(report.indiaBusinessDate(new Date('2026-10-24T20:00:00Z')),'2026-10-25','India midnight is consistent');
+ assert.equal(report.stockExpiryTimestamp('2026-02'),Date.UTC(2026,1,28));
+ assert.equal(report.stockExpiryTimestamp('02/28'),Date.UTC(2028,1,29));
+ assert.equal(report.stockExpiryTimestamp('2026-10-01'),Date.UTC(2026,9,1),'explicit expiry day is retained');
+ assert(Number.isNaN(report.stockExpiryTimestamp('2026-02-30')));
+ assert(Number.isNaN(report.stockExpiryTimestamp('2026-13')));
+ assert(Number.isNaN(report.stockExpiryTimestamp('unknown')));
+
  const {stockReportData}=await import(pathToFileURL(temp+'/data.mjs'));
  const {GET}=await import(pathToFileURL(temp+'/route.mjs'));
  const snapshot=await stockReportData('U');
@@ -155,6 +163,26 @@ try {
   assert(JSON.stringify(renderer.toJSON()).includes('Please sign in again'));
   assert(button('Download CSV').props.disabled,'failed refresh cannot export stale stock');
  } finally { URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke; }
+
+ await act(async()=>renderer.unmount());renderer=null;
+ const {WholesaleDashboard}=await import(pathToFileURL(temp+'/dashboard-ui.mjs'));
+ const dashboardRequests=[], navigations=[], opened=[];
+ globalThis.fetch=async(url)=>{dashboardRequests.push(url);return Response.json({...dashboard,salesCount:0,purchaseCount:0,alerts:[]})};
+ const dashboardProps={company:'Agency',revision:1,open:kind=>opened.push(kind),navigate:page=>navigations.push(page)};
+ await act(async()=>{renderer=create(createElement(WholesaleDashboard,dashboardProps))});
+ const dashboardButton=text=>renderer.root.findAllByType('button').find(b=>b.children.join('')===text);
+ assert.equal(dashboardRequests.length,1);
+ await act(async()=>renderer.update(createElement(WholesaleDashboard,{...dashboardProps,revision:2})));
+ assert.equal(dashboardRequests.length,2,'dashboard reloads after workspace records change');
+ await act(async()=>dashboardButton('Today').props.onClick());
+ assert.equal(dashboardRequests.at(-1),'/api/dashboard?period=today');
+ await act(async()=>dashboardButton('+ New sales invoice').props.onClick());assert.equal(opened.at(-1),'invoice');
+ await act(async()=>dashboardButton('Inventory').props.onClick());assert.equal(navigations.at(-1),'inventory');
+ globalThis.fetch=async()=>Response.json({error:'Session expired'},{status:401});
+ await act(async()=>dashboardButton('Refresh').props.onClick());
+ assert(JSON.stringify(renderer.toJSON()).includes('Session expired'));
+ assert(!renderer.root.findAllByProps({'aria-label':'Business metrics'}).length,'failed dashboard refresh hides stale totals');
+ console.log('PASS: dashboard refresh after saves, period controls, navigation, session failure, India dates and expiry boundaries');
  console.log('PASS: full D1 inventory beyond 100 rows, tenant isolation, active membership, HTTP authentication/no-cache, stock filters, unique products, CSV quoting/formula safety, escaped print output, mounted report presets/preview/download and error recovery');
 } finally {
  if(renderer)await act(async()=>renderer.unmount());

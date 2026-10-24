@@ -414,7 +414,7 @@ export function MediBillApp({
             </div>
           )}
           {page === "dashboard" && (
-            <WholesaleDashboard company={data.tenant.companyName} open={setModal} navigate={setPage} />
+            <WholesaleDashboard company={data.tenant.companyName} revision={data} open={setModal} navigate={setPage} />
           )}{" "}
           {page === "sales" && (
             <SalesRegistry
@@ -700,7 +700,7 @@ function ProductOverview({ data, categories = true }: { data: Data; categories?:
     entries.set(key,entry);
   }
   const products = [...entries.values()];
-  const low = products.filter(p => p.stock > 0 && p.stock < 50).length;
+  const low = products.filter(p => p.stock > 0 && p.stock <= 10).length;
   const out = products.filter(p => p.stock <= 0).length;
   const categoryCounts = new Map<string,{name:string;total:number;available:number}>();
   for (const p of products) {

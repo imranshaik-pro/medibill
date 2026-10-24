@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { getMembership } from '@/lib/medibill';
 import { stockReportData } from '@/lib/stock-report-data';
-import { selectStockReport } from '@/lib/stock-report';
+import { selectStockReport, indiaBusinessDate, stockExpiryTimestamp, DEFAULT_LOW_STOCK_THRESHOLD } from '@/lib/stock-report';
 export async function GET(request: Request) {
     const headers = { 'Cache-Control': 'private, no-store' };
     const user = await getChatGPTUser();
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
         const period = new URL(request.url).searchParams.get('period') || 'month';
         if (!['today', 'month', 'year'].includes(period))
             return NextResponse.json({ error: 'Invalid period.' }, { status: 400, headers });
-        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        const today = indiaBusinessDate();
         const from = period === 'today' ? today : period === 'month' ? today.slice(0, 7) + '-01' : today.slice(0, 4) + '-01-01';
         const tenant = member.tenantId;
         const [sales, purchases, customers, suppliers, recent, stock] = await Promise.all([
@@ -42,9 +42,9 @@ export async function GET(request: Request) {
             stockReportData(user.userId),
         ]);
         const options = { availability: 'all' as const, search: '', columns: ['name' as const], productsOnly: false };
-        const expired = selectStockReport(stock.products, { ...options, condition: 'expired' });
-        const near = selectStockReport(stock.products, { ...options, condition: 'near' });
-        const low = selectStockReport(stock.products, { ...options, condition: 'low', lowThreshold: 10 });
+        const expired = selectStockReport(stock.products, { ...options, condition: 'expired' }).sort((a,b)=>stockExpiryTimestamp(a.expiry)-stockExpiryTimestamp(b.expiry));
+        const near = selectStockReport(stock.products, { ...options, condition: 'near' }).sort((a,b)=>stockExpiryTimestamp(a.expiry)-stockExpiryTimestamp(b.expiry));
+        const low = selectStockReport(stock.products, { ...options, condition: 'low', lowThreshold: DEFAULT_LOW_STOCK_THRESHOLD });
         const expiredIds = new Set(expired.map(p => p.id));
         const saleable = stock.products.filter(p => p.stock > 0 && !expiredIds.has(p.id));
         const buckets = new Map<string, {
