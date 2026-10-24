@@ -46,7 +46,7 @@ def tenant():
 
 
 def stock(t,batch=None):
-    r=client.get('/api/v1/inventory/stock',headers=t['h'],params={'product_id':t['product']['id']})
+    r=client.get('/api/v1/inventory/stock',headers=t['h'],params={'product_id':t['product']['id'],'include_zero':True})
     assert r.status_code==200,r.text
     return next(x['quantity_on_hand'] for x in r.json() if x['batch_id']==(batch or t['batch']))
 
@@ -73,7 +73,8 @@ def test_retry_conflict_and_legacy_client(tenant):
 
 def test_failed_post_rolls_back_receipt_audit_and_stock(tenant):
     t=tenant;h=dict(t['h'],**{'Idempotency-Key':uuid4().hex})
-    post('sales/invoices',h,t['payload'](quantity=11),409)
+    payload=t['payload']();payload['items'].append(dict(payload['items'][0],quantity=11))
+    post('sales/invoices',h,payload,409)
     assert stock(t)==10
     with SessionLocal() as db:
         assert db.query(CommandReceipt).filter_by(company_id=t['user']['company_id']).count()==0

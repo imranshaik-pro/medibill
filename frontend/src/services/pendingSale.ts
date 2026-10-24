@@ -21,7 +21,7 @@ export async function postSale(scope: string, payload?: Record<string, unknown>)
     localStorage.removeItem(storageKey(scope))
     return result
   } catch (error: any) {
-    if ([400, 403, 422].includes(error?.response?.status)) localStorage.removeItem(storageKey(scope))
+    if ([400, 422].includes(error?.response?.status)) localStorage.removeItem(storageKey(scope))
     throw error
   }
 }
