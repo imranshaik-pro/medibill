@@ -247,6 +247,25 @@ export function MediBillApp({
   const [searchTarget, setSearchTarget] = useState<{page:string;query:string;record?:Record<string,unknown>}>({page:"",query:""});
   const [modal, setModal] = useState<Modal>(null);
   const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    if (!mobile) return;
+    const previous = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    const drawer = document.getElementById('workspace-navigation');
+    drawer?.querySelector<HTMLButtonElement>('.mobile-nav-close')?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobile(false);
+      if (event.key !== 'Tab') return;
+      const items = drawer?.querySelectorAll<HTMLElement>('button, a[href]');
+      if (!items?.length) return;
+      const first = items[0], last = items[items.length-1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', escape);
+    return () => { document.body.style.overflow = previous; previousFocus?.focus(); window.removeEventListener('keydown', escape); };
+  }, [mobile]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const load = () =>
@@ -356,10 +375,12 @@ export function MediBillApp({
   ] as const;
   return (
     <div className="shell pharmly-shell">
-      <aside className={mobile ? "side open" : "side"}>
+      {mobile && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setMobile(false)} />}
+      <aside id="workspace-navigation" className={mobile ? "side open" : "side"}>
         <div className="brand">
           <span>M+</span>MediBill <b>Pro</b>
         </div>
+        <button type="button" className="mobile-nav-close" onClick={() => setMobile(false)}>Close menu ×</button>
         <nav aria-label="Main navigation">
           {nav.map(([id, label, Icon]) => (
             <button
@@ -392,9 +413,9 @@ export function MediBillApp({
           </a>
         </div>
       </aside>
-      <main className="main">
+      <main className="main" inert={mobile}>
         <header className="top">
-          <button className="menu" aria-label="Toggle navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>
+          <button className="menu" aria-label="Toggle navigation" aria-controls="workspace-navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>
             <Menu />
           </button>
           <WorkspaceSearch navigate={(nextPage,query,record)=>{setSearchTarget({page:nextPage,query,record});setPage(nextPage);setMobile(false);}}/>
@@ -497,6 +518,10 @@ export function MediBillApp({
           {page === "admin" && <Admin data={data} user={user} />}
         </div>
       </main>
+      <nav className="mobile-bottom-nav" inert={mobile} aria-label="Mobile shortcuts">
+        {([['dashboard','Home',Home],['sales','Sales',ShoppingCart],['inventory','Stock',Boxes],['reports','Reports',BarChart3]] as const).map(([id,label,Icon]) => <button type="button" key={id} aria-current={page===id?'page':undefined} onClick={()=>{setSearchTarget({page:'',query:''});setPage(id);setMobile(false);}}><Icon aria-hidden="true"/><span>{label}</span></button>)}
+        <button type="button" aria-expanded={mobile} aria-controls="workspace-navigation" onClick={()=>setMobile(!mobile)}><Menu aria-hidden="true"/><span>More</span></button>
+      </nav>
       <Entry
         type={modal}
         close={() => setModal(null)}
