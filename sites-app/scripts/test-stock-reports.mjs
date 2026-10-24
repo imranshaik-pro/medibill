@@ -30,7 +30,7 @@ try {
   '@/app/chatgpt-auth':'export const getChatGPTUser=async()=>globalThis.__reportUser;',
   'next/server':'export const NextResponse={json:(body,init)=>Response.json(body,init)};',
  };
- for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['lib/pharma-report-data.ts','pharma-data'],['lib/pharma-reports.ts','pharma'],['lib/invoice-deletion.ts','deletion'],['app/api/reports/stock/route.ts','route'],['app/stock-reports.tsx','ui']]) {
+ for(const [entry,name] of [['lib/stock-report.ts','report'],['lib/stock-report-data.ts','data'],['lib/pharma-report-data.ts','pharma-data'],['lib/pharma-reports.ts','pharma'],['lib/invoice-deletion.ts','deletion'],['app/api/reports/stock/route.ts','route'],['app/api/dashboard/route.ts','dashboard-route'],['app/stock-reports.tsx','ui']]) {
   await build({entryPoints:[root+entry],outfile:temp+'/'+name+'.mjs',bundle:true,platform:'node',format:'esm',packages:'external',jsx:'automatic',plugins:[{name:'runtime',setup(b){
    b.onResolve({filter:/^(cloudflare:workers|@\/db|@\/app\/chatgpt-auth|next\/server)$/},args=>({path:args.path,namespace:'test'}));
    b.onLoad({filter:/.*/,namespace:'test'},args=>({contents:shims[args.path],loader:'js'}));
@@ -50,6 +50,25 @@ try {
  await DB.prepare("INSERT INTO invoice_lines(id,tenant_id,invoice_id,customer_id,product_id,product_name,batch,quantity,unit_rate,taxable_amount,gst_amount,line_total,created_at) VALUES('L','A','I','C','A2','Medicine','B2',2,100,200,10,210,0)").run();
  await DB.prepare("INSERT INTO purchase_inwards(id,tenant_id,inward_no,supplier_id,supplier_name,invoice_date,grand_total,cgst,sgst,created_at) VALUES('PI','A','PIN1','S','Seller','2026-10-25',105,2.5,2.5,0)").run();
  await DB.prepare("INSERT INTO payments(id,tenant_id,payment_no,type,party_id,party_name,amount,method,payment_date,created_at) VALUES('PAY','A','PAY1','Customer receipt','C','Buyer',10,'Cash','2026-10-25',0)").run();
+
+ const {GET:dashboardGET}=await import(pathToFileURL(temp+'/dashboard-route.mjs'));
+ const dashboardToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ await DB.prepare("INSERT INTO invoices(id,tenant_id,invoice_no,customer_id,customer_name,amount,invoice_date,created_at) VALUES('DASH','A','DASH1','C','Buyer',17,?,0),('FOREIGN','B','OTHER','C','Other',99999,?,0)").bind(dashboardToday,dashboardToday).run();
+ let dashboardResponse=await dashboardGET(new Request('https://example.invalid/api/dashboard?period=today'));
+ assert.equal(dashboardResponse.status,200);
+ const dashboard=await dashboardResponse.json();
+ assert.equal(dashboard.sales,dashboardToday==='2026-10-25'?227:17);
+ assert.equal(dashboard.receivables,200);assert.equal(dashboard.payables,100);
+ assert.equal(dashboard.low,135,'inventory alerts use all tenant batches');
+ assert(!JSON.stringify(dashboard).includes('99999'),'dashboard does not leak other tenant sales');
+ assert.equal(dashboard.trend.length,1);
+ assert.equal((await dashboardGET(new Request('https://example.invalid/api/dashboard?period=invalid'))).status,400);
+ globalThis.__reportUser={userId:'P'};
+ assert.equal((await dashboardGET(new Request('https://example.invalid/api/dashboard'))).status,403);
+ globalThis.__reportUser=null;
+ assert.equal((await dashboardGET(new Request('https://example.invalid/api/dashboard'))).status,401);
+ globalThis.__reportUser={userId:'U'};
+ await DB.prepare("DELETE FROM invoices WHERE id IN ('DASH','FOREIGN')").run();
  assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'sales'}))).rows[0].Total,210);
  assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'salesInvoices'}))).rows.length,1);
  assert.equal((await pharmaReportData('U',new URLSearchParams({kind:'sales',from:'2026-10-26'}))).rows.length,0);
