@@ -52,3 +52,17 @@ The report suite uses actual migrated Miniflare D1 with 135 tenant stock rows an
 The production build passes. The repository-wide TypeScript check still reports the same 127 existing diagnostics as `fix/invoice-drafts-stock`, with no additional diagnostics from this change. The workflow runs the new report suite alongside the existing billing checks and build.
 
 No schema migration is needed for this report or autosave change. Deploy the complete tested Worker source, including its draft/print dependencies, using the existing production Cloudflare bindings and secrets. Do not reset, replace or import production D1 to release these changes. Deployment to the live URL has not been performed by this change.
+
+### Cloudflare Git build configuration
+
+Connect the existing `medibill-pro` Worker to `imranshaik-pro/medibill`. For this release, select `feat/stock-reports-autosaved-drafts`, use `sites-app` as the root directory, and use `npm run build` as the build command.
+
+The deploy command must prepare a configuration with the existing production resources before uploading the built Worker:
+
+```sh
+node scripts/prepare-cloudflare.mjs DATABASE_ID R2_BUCKET_NAME https://medibill-pro.irshad4281.workers.dev/ && npx wrangler deploy --config dist/server/wrangler.cloudflare.json --keep-vars
+```
+
+Replace `DATABASE_ID` and `R2_BUCKET_NAME` in the Cloudflare build setting with the resources already bound as `DB` and `BUCKET`. The default generated build configuration uses local development placeholders and must not be deployed directly. The preparation command selects the existing Worker name, Google authentication origin and wholesale billing policy. `--keep-vars` preserves additional dashboard-managed variables; existing Worker secrets remain in Cloudflare.
+
+After saving the connection and build settings, a new commit on the selected production branch triggers the first Git build. Check its build and deployment logs, then verify the live report download, invoice draft recovery, sign-in and invoice printing. A saved Git connection or a successful local dry run does not establish that the live deployment succeeded.
