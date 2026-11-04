@@ -1,0 +1,1 @@
+"use client";import{Button}from"@/components/ui/button";export function PrintActions(){return <div className="print-actions"><Button onClick={()=>window.print()}>Print / Download PDF</Button><Button variant="outline" onClick={()=>window.close()}>Close</Button></div>}

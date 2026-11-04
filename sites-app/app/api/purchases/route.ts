@@ -1,0 +1,5 @@
+import { env } from "cloudflare:workers";
+import { runDocumentRequest, DocumentRequestError } from "@/lib/document-safety";
+import { getMembership } from "@/lib/medibill";
+import {NextResponse} from "next/server";import{getChatGPTUser}from"@/app/chatgpt-auth";import{addPurchase}from"@/lib/medibill";
+export async function POST(r:Request){const u=await getChatGPTUser();if(!u)return NextResponse.json({error:"Unauthorized"},{status:401});try{const b=await r.json(),input={...b,quantity:Number(b.quantity),unitCost:Number(b.unitCost),mrp:Number(b.mrp),gstRate:Number(b.gstRate||0)};if(!input.supplierId||!input.productMasterId||!input.pack||!input.batch||!input.expiry||input.quantity<=0||input.unitCost<=0||input.mrp<=0)throw new Error("Complete all purchase and batch fields");return NextResponse.json(await runDocumentRequest(env.DB,await getMembership(u.userId),"legacy_purchase",r.headers.get("Idempotency-Key"),input,op=>addPurchase(u.userId,input,op)),{status:201})}catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Unable to save purchase"},{status:e instanceof DocumentRequestError ? e.status : 400})}}

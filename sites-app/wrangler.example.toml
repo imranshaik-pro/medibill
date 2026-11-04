@@ -1,0 +1,16 @@
+name = "medibill-pro"
+main = "dist/server/index.js"
+compatibility_date = "2026-09-30"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "medibill-production"
+database_id = "SET_AFTER_CREATING_D1_DATABASE"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "medibill-production-files"
+
+[vars]
+GEMINI_VISION_MODEL = "gemini-3.1-flash-lite"
