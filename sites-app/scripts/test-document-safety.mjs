@@ -14,12 +14,15 @@ try {
  const db=drizzle(DB);
  globalThis.__stockEnv={DB};globalThis.__stockGetDb=()=>db;
 
- for(const src of ['db/schema.ts','lib/stock-concurrency.ts','lib/customer-update.ts','lib/restore-security.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
+ for(const src of ['db/schema.ts','lib/stock-concurrency.ts','lib/product-master-sync.ts','lib/product-master-values.ts','lib/customer-update.ts','lib/restore-security.ts','lib/billing-catalog.ts','lib/billing-expiry.ts','lib/medibill.ts','lib/invoice-deletion.ts','lib/document-safety.ts']) {
   let text=fs.readFileSync(root+src,'utf8');
   text=text.replace('import { env } from "cloudflare:workers";','const env=globalThis.__stockEnv;')
     .replace('import { getDb } from "@/db";','const getDb=globalThis.__stockGetDb;')
     .replaceAll('"./invoice-deletion"','"./invoice-deletion.mjs"')
     .replaceAll('"@/db/schema"','"./schema.mjs"').replaceAll('"../db/schema"','"./schema.mjs"')
+    .replaceAll('"./billing-catalog"','"./billing-catalog.mjs"')
+    .replaceAll('"./billing-expiry"','"./billing-expiry.mjs"')
+    .replaceAll('"./product-master-sync"','"./product-master-sync.mjs"').replaceAll('"./product-master-values"','"./product-master-values.mjs"')
     .replaceAll('"./stock-concurrency"','"./stock-concurrency.mjs"').replaceAll('"./customer-update"','"./customer-update.mjs"').replaceAll('"./restore-security"','"./restore-security.mjs"');
   fs.writeFileSync(temp+'/'+src.split('/').at(-1).replace('.ts','.mjs'),ts.transpileModule(text,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
  }

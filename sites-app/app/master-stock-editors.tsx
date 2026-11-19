@@ -10,6 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { InventoryDeleteDialog } from "./inventory-delete-dialog";
+import { SharedProductEditor } from "./shared-product-editor";
+import { productMasterSnapshot } from "@/lib/product-master-values";
 import { Input } from "@/components/ui/input";
 type Master = {
   id: string;
@@ -54,7 +56,13 @@ async function patch(url: string, body: unknown) {
       body: JSON.stringify(body),
     }),
     out = await r.json();
-  if (!r.ok) throw new Error(out.error);
+  if (!r.ok) {
+    throw new Error(
+      out && typeof out === "object" && "error" in out && typeof out.error === "string"
+        ? out.error
+        : "Request failed"
+    );
+  }
   return out;
 }
 export function ProductCatalogEditor({
@@ -71,6 +79,7 @@ export function ProductCatalogEditor({
   initialSearch?: string;
 }) {
   const [q, setQ] = useState(initialSearch);
+  const [editError, setEditError] = useState("");
   useEffect(() => setQ(initialSearch), [initialSearch]);
   const h1Warning =
     "Schedule H1 drug: Dispense only on the prescription of a Registered Medical Practitioner. Medical supervision is required.";
@@ -90,7 +99,13 @@ export function ProductCatalogEditor({
           headers: { accept: "application/json" },
         }),
         out = await response.json();
-      if (!response.ok) throw new Error(out.error || "Unable to delete product");
+            if (!response.ok) {
+        throw new Error(
+          out && typeof out === "object" && "error" in out && typeof out.error === "string"
+            ? out.error
+            : "Unable to delete product"
+        );
+      }
       setDeletedIds((current) => [...current, target.id]);
       setDeleting(null);
       notify("Product deleted successfully");
@@ -103,7 +118,7 @@ export function ProductCatalogEditor({
     }
   }
   async function save() {
-    if (!form) return;
+    if (!form || !selected || busy) return;
     if (
       (form.isScheduleH1 ||
         form.isPrescriptionRequired ||
@@ -120,14 +135,18 @@ export function ProductCatalogEditor({
     )
       return;
     setBusy(true);
+    setEditError("");
     try {
-      await patch(`/api/products/${form.id}`, form);
+      const saved = await patch(`/api/products/${form.id}`, { ...form, original: productMasterSnapshot(selected) });
+      const warning = saved && typeof saved === "object" && "backupWarning" in saved && typeof saved.backupWarning === "string" ? saved.backupWarning : "";
       setSelected(null);
       setForm(null);
       changed();
-      notify(`${form.name} updated successfully`);
+      notify(`${form.name} updated successfully${warning ? `. ${warning}` : ""}`);
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Update failed");
+      const message = e instanceof Error ? e.message : "Update failed";
+      setEditError(message);
+      notify(message);
     } finally {
       setBusy(false);
     }
@@ -179,7 +198,7 @@ export function ProductCatalogEditor({
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        setSelected(r);
+                        setSelected({ ...r });
                         setForm(null);
                       }}
                     >
@@ -190,8 +209,9 @@ export function ProductCatalogEditor({
                       type="button"
                       size="sm"
                       onClick={() => {
-                        setSelected(r);
+                        setSelected({ ...r });
                         setForm({ ...r });
+                        setEditError("");
                       }}
                     >
                       <Pencil />
@@ -349,6 +369,7 @@ export function ProductCatalogEditor({
                       placeholder="Prescription-only medicine. Dispense only against a valid RMP prescription."
                     />
                   </label>
+                  {editError && <p role="alert">{editError}</p>}
                   <Button disabled={busy} onClick={save}>
                     {busy ? "Updating…" : "Update Product"}
                   </Button>
@@ -459,6 +480,7 @@ export function InventoryEditor({
         catalogOnly: true,
       })),
     inventoryRows = [...rows, ...catalogOnlyRows];
+  const [editingProduct, setEditingProduct] = useState<Master | null>(null);
   const [deleting, setDeleting] = useState<Batch | null>(null);
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [q, setQ] = useState(initialSearch),
@@ -527,7 +549,7 @@ export function InventoryEditor({
                   <td>{r.pack}</td>
                   <td>{r.batch}</td>
                   <td>{r.expiry}</td>
-                  <td><div className="stock-quantity"><strong>{r.stock}</strong><span className={"stock-badge "+(r.stock<=0?"stock-out":r.stock<=10?"stock-low":"stock-in")}>{r.stock<=0?"Out of stock":r.stock<=10?"Low stock":"In stock"}</span></div></td>
+                  <td><div className="stock-quantity"><strong>{r.stock}</strong><span className={"stock-badge "+(r.stock<=0?"stock-out":r.stock<50?"stock-low":"stock-in")}>{r.stock<=0?"Out of stock":r.stock<50?"Low stock":"In stock"}</span></div></td>
                   <td>{currency.format(r.purchaseRate)}</td>
                   <td>{currency.format(r.mrp)}</td>
                   <td>{currency.format(r.saleRate || 0)}</td>
@@ -537,6 +559,24 @@ export function InventoryEditor({
                     </b>
                   </td>
                   <td>
+                    {r.productMasterId && masters.some(
+                      (master) => master.id === r.productMasterId
+                    ) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const master = masters.find(
+                            (item) => item.id === r.productMasterId
+                          );
+                          if (master) setEditingProduct(master);
+                        }}
+                      >
+                        <Pencil size={16} />
+                        Edit Product Details
+                      </Button>
+                    )}
                     {r.catalogOnly ? (
                       <em className="zero-stock-status">No stock yet</em>
                     ) : <div className="row-actions">
@@ -676,6 +716,34 @@ export function InventoryEditor({
                 </div>
               )}
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!editingProduct}
+        onOpenChange={(open) => {
+          if (!open) setEditingProduct(null);
+        }}
+      >
+        <DialogContent className="entry-dialog">
+          <DialogHeader>
+            <DialogTitle>Edit Product Details</DialogTitle>
+            <DialogDescription>
+              Update the linked Product Master record. Batch quantities and
+              historical invoices remain unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          {editingProduct && (
+            <SharedProductEditor
+              key={editingProduct.id}
+              product={editingProduct}
+              notify={notify}
+              onCancel={() => setEditingProduct(null)}
+              onSaved={() => {
+                setEditingProduct(null);
+                changed();
+              }}
+            />
           )}
         </DialogContent>
       </Dialog>

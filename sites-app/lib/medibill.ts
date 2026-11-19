@@ -1,10 +1,13 @@
+import { syncProductMaster, ProductMasterUpdateError, readOriginalProductMaster } from "./product-master-sync";
+import { billingPrescriptionUnchanged, getBillingBatches, type BillingBatch } from "./billing-catalog";
+import { batchExpiryStatus, billingToday } from "./billing-expiry";
 import type { DocumentOperation } from "./document-safety";
 import { stockDelta, balanceDelta, snapshotUnchanged, commitStockBatch } from "./stock-concurrency";
 import { persistCustomerEdit } from "./customer-update";
 import { env } from "cloudflare:workers";
 import { deleteInvoiceRecord, nextDocumentNumber } from "./invoice-deletion";
 import { requireRestoreAdmin, validateRestoreSnapshot } from "./restore-security";
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   agencyProfiles,
@@ -29,14 +32,6 @@ import {
   users,
 } from "@/db/schema";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
-
-// Deployment policy, never taken from an invoice request. This application defaults
-// to agency/wholesale billing; retail dispensing must be explicitly configured.
-export function billingMode(): "wholesale" | "retail" {
-  const mode = (env as typeof env & { BILLING_MODE?: string }).BILLING_MODE || "wholesale";
-  if (mode !== "wholesale" && mode !== "retail") throw new Error("Invalid BILLING_MODE configuration");
-  return mode;
-}
 
 export async function getMembership(userId: string) {
   const row =
@@ -481,7 +476,6 @@ export async function dashboardData(userId: string) {
   return {
     tenant,
     member,
-    billingMode: billingMode(),
     customers: customerRows,
     productMasters: productMasterRows,
     products: productRows,
@@ -1303,7 +1297,6 @@ export async function addProduct(
 }
 
 type SaleInput = {
-  expectedRevision?: string;
   customerId: string;
   invoiceType?: string;
   invoiceDate?: string;
@@ -1334,32 +1327,109 @@ type SaleInput = {
     gstRate: number;
   }>;
 };
-function enforcePrescriptionCompliance(
-  input: SaleInput,
-  selectedProducts: Array<typeof products.$inferSelect>,
-  masters: Array<typeof productMasters.$inferSelect>,
-) {
-  if (billingMode() === "wholesale") return false;
-  const masterMap = new Map(masters.map((m) => [m.id, m]));
-  const flagged = selectedProducts
-    .map((p) => (p.productMasterId ? masterMap.get(p.productMasterId) : undefined))
-    .filter(
-      (m) =>
-        m &&
-        (m.isScheduleH1 || m.isPrescriptionRequired || m.isHighCaution),
-    );
-  if (!flagged.length) return false;
-  if (!input.complianceAcknowledged)
+function normalizeSaleInput(raw: unknown): SaleInput {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Enter valid invoice details");
+  }
+  const input = raw as Record<string, unknown>;
+  if (typeof input.customerId !== "string" || !input.customerId.trim() ||
+      !Array.isArray(input.items) || !input.items.length) {
+    throw new Error("Select a customer and add at least one product row");
+  }
+
+  function readNumber(value: unknown, label: string, minimum: number, maximum: number, whole = false) {
+    const parsed = typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())
+      ? Number(value) : value;
+    if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed < minimum ||
+        parsed > maximum || (whole && !Number.isSafeInteger(parsed))) {
+      throw new Error("Invalid " + label);
+    }
+    return parsed;
+  }
+
+  function optional(value: unknown, label: string, maximum: number, whole = false) {
+    return readNumber(value === undefined ? 0 : value, label, 0, maximum, whole);
+  }
+
+  const maxMoney = Number.MAX_SAFE_INTEGER / 100;
+  const cashDiscountType = input.cashDiscountType === undefined ? "flat" : input.cashDiscountType;
+  if (cashDiscountType !== "percent" && cashDiscountType !== "flat") {
+    throw new Error("Invalid cash discount type");
+  }
+  const freightAmount = optional(input.freightAmount, "freight amount", maxMoney);
+  const insuranceAmount = optional(input.insuranceAmount, "insurance amount", maxMoney);
+  const freightGstRate = optional(input.freightGstRate, "freight GST rate", 100);
+  const insuranceGstRate = optional(input.insuranceGstRate, "insurance GST rate", 100);
+  const cashDiscount = optional(input.cashDiscount, "cash discount",
+    cashDiscountType === "percent" ? 100 : maxMoney);
+
+  let gross = freightAmount + insuranceAmount;
+  let totalUnits = 0;
+  const items = input.items.map((item: unknown, index) => {
+    const rowLabel = " in row " + (index + 1);
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Invalid invoice item" + rowLabel);
+    }
+    const row = item as Record<string, unknown>;
+    if (typeof row.productId !== "string" || !row.productId.trim()) {
+      throw new Error("Select a valid product and batch" + rowLabel);
+    }
+    const quantity = readNumber(row.quantity, "billed quantity" + rowLabel, 1, Number.MAX_SAFE_INTEGER, true);
+    const freeQuantity = optional(row.freeQuantity, "free quantity" + rowLabel, Number.MAX_SAFE_INTEGER, true);
+    const unitRate = readNumber(row.unitRate, "unit rate" + rowLabel, Number.MIN_VALUE, maxMoney);
+    const discountPercent = optional(row.discountPercent, "discount percentage" + rowLabel, 100);
+    const gstRate = optional(row.gstRate, "GST rate" + rowLabel, 100);
+    totalUnits += quantity + freeQuantity;
+    gross += quantity * unitRate;
+    if (!Number.isSafeInteger(totalUnits) || gross > maxMoney / 2) {
+      throw new Error("Invoice exceeds supported quantity or monetary limits");
+    }
+    return { productId: row.productId, quantity, freeQuantity, unitRate, discountPercent, gstRate };
+  });
+
+  return {
+    ...input, customerId: input.customerId, items,
+    freightAmount, insuranceAmount, freightGstRate, insuranceGstRate, cashDiscount, cashDiscountType,
+  } as SaleInput;
+}
+
+function saleCashDiscount(input: SaleInput, subtotal: number) {
+  const discount = input.cashDiscount ?? 0;
+  if (input.cashDiscountType === "percent") return money2((subtotal * discount) / 100);
+  if (discount > subtotal) throw new Error("Cash discount exceeds the invoice subtotal");
+  return money2(discount);
+}
+
+function enforcePrescriptionCompliance(input: SaleInput, batches: BillingBatch[]) {
+  if (!batches.some(batch => batch.cautionId)) return false;
+  if (input.complianceAcknowledged !== true)
     throw new Error("Acknowledge the regulatory medicine warning before billing");
   if (
-    !input.prescriptionDoctorName?.trim() ||
-    !input.prescriptionDoctorRegistration?.trim()
+    (typeof input.prescriptionDoctorName !== "string" || !input.prescriptionDoctorName.trim()) ||
+    (typeof input.prescriptionDoctorRegistration !== "string" || !input.prescriptionDoctorRegistration.trim())
   )
     throw new Error(
       "Doctor name and RMP registration number are required for this prescription sale",
     );
   return true;
 }
+function assertSellableExpiry(batch: typeof products.$inferSelect, today: string) {
+  const status = batchExpiryStatus(batch.expiry, today);
+  if (status !== "valid") {
+    throw new Error(batch.name + " batch " + batch.batch + (status === "expired" ? ": expired" : ": invalid expiry"));
+  }
+}
+
+function billingBatchMetadataUnchanged(tenantId: string, rows: Array<typeof products.$inferSelect>) {
+  const expected = rows.map(({ id, expiry, productMasterId }) => ({ id, expiry, productMasterId }));
+  return sql`NOT EXISTS (
+    SELECT 1 FROM json_each(${JSON.stringify(expected)}) AS expected
+    LEFT JOIN products p ON p.tenant_id=${tenantId} AND p.id=json_extract(expected.value, '$.id')
+    WHERE p.id IS NULL OR p.expiry IS NOT json_extract(expected.value, '$.expiry')
+      OR p.product_master_id IS NOT json_extract(expected.value, '$.productMasterId')
+  )`;
+}
+
 function words(n: number) {
   const one = [
       "",
@@ -1418,10 +1488,10 @@ function words(n: number) {
     }
   return (out + hundred(x)).trim() + " Rupees Only";
 }
-export async function addInvoice(userId: string, input: SaleInput, operation?: DocumentOperation) {
+export async function addInvoice(userId: string, raw: unknown, operation?: DocumentOperation) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
-  if (!input.items?.length) throw new Error("Add at least one product row");
+  const input = normalizeSaleInput(raw);
   const db = getDb(),
     [customer] = await db
       .select()
@@ -1434,26 +1504,19 @@ export async function addInvoice(userId: string, input: SaleInput, operation?: D
       )
       .limit(1);
   if (!customer) throw new Error("CUSTOMER_NOT_FOUND");
-  const productRows = await db
-      .select()
-      .from(products)
-      .where(eq(products.tenantId, member.tenantId)),
-    masterRows = await db
-      .select()
-      .from(productMasters)
-      .where(eq(productMasters.tenantId, member.tenantId)),
-    productMap = new Map(productRows.map((p) => [p.id, p])),
-    now = Date.now(),
-    lineRows = [],
-    stockUpdates = [];
-  const selectedProducts = input.items
-    .map((item) => productMap.get(item.productId))
-    .filter((p): p is (typeof productRows)[number] => Boolean(p));
-  const complianceRequired = enforcePrescriptionCompliance(
-    input,
-    selectedProducts,
-    masterRows,
-  );
+  const ids = [...new Set(input.items.map(item => item.productId))];
+  const productRows: Array<typeof products.$inferSelect> = await db.select().from(products).where(and(
+    eq(products.tenantId, member.tenantId),
+    sql`${products.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+  ));
+  const prescription = await getBillingBatches(env.DB, member.tenantId, ids);
+  if (prescription.length !== ids.length) throw new Error("Select a valid product and batch");
+  const complianceRequired = enforcePrescriptionCompliance(input, prescription);
+  const productMap = new Map(productRows.map(p => [p.id, p]));
+  const today = billingToday();
+  const now = Date.now();
+  const lineRows = [];
+  const stockUpdates = [];
   let grossTaxable = 0,
     lineDiscount = 0,
     totalGst = 0,
@@ -1462,22 +1525,21 @@ export async function addInvoice(userId: string, input: SaleInput, operation?: D
     const item = input.items[i],
       p = productMap.get(item.productId);
     if (!p) throw new Error(`Select a valid product and batch in row ${i + 1}`);
-    const qty = Math.max(0, Number(item.quantity) || 0),
-      free = Math.max(0, Number(item.freeQuantity) || 0),
+    assertSellableExpiry(p, today);
+    const qty = item.quantity,
+      free = item.freeQuantity,
       used = qty + free;
-    if (!Number.isSafeInteger(qty) || !Number.isSafeInteger(free)) throw new Error("Stock quantities must be whole units");
-    if (qty <= 0) throw new Error(`Enter billed quantity in row ${i + 1}`);
     if (used > p.stock)
       throw new Error(
         `${p.name} batch ${p.batch}: only ${p.stock} available, requested ${used}`,
       );
-    const rate = Math.max(0, Number(item.unitRate) || 0),
+    const rate = item.unitRate,
       gross = money2(qty * rate),
       discount = money2(
-        (gross * Math.max(0, Number(item.discountPercent) || 0)) / 100,
+        (gross * item.discountPercent) / 100,
       ),
       taxable = money2(gross - discount),
-      gstRate = Math.max(0, Number(item.gstRate) || 0),
+      gstRate = item.gstRate,
       gstAmount = money2((taxable * gstRate) / 100);
     grossTaxable += taxable;
     lineDiscount += discount;
@@ -1500,7 +1562,7 @@ export async function addInvoice(userId: string, input: SaleInput, operation?: D
       quantity: qty,
       freeQuantity: free,
       unitRate: rate,
-      discountPercent: Number(item.discountPercent) || 0,
+      discountPercent: item.discountPercent,
       discountAmount: discount,
       gstRate,
       taxableAmount: taxable,
@@ -1525,12 +1587,7 @@ export async function addInvoice(userId: string, input: SaleInput, operation?: D
         (insurance * (Number(input.insuranceGstRate) || 0)) / 100,
     ),
     beforeDiscount = money2(grossTaxable + freight + insurance),
-    discountInput = Math.max(0, Number(input.cashDiscount) || 0),
-    cashDiscount = money2(
-      input.cashDiscountType === "percent"
-        ? (beforeDiscount * discountInput) / 100
-        : discountInput,
-    ),
+    cashDiscount = saleCashDiscount(input, beforeDiscount),
     taxableAfterDiscount = Math.max(0, money2(beforeDiscount - cashDiscount)),
     gstBeforeCash = money2(totalGst + chargeGst),
     gstScale = beforeDiscount ? taxableAfterDiscount / beforeDiscount : 1,
@@ -1609,7 +1666,7 @@ export async function addInvoice(userId: string, input: SaleInput, operation?: D
             ),
         ]
       : []),
-  ], []);
+  ], [billingBatchMetadataUnchanged(member.tenantId, productRows), billingPrescriptionUnchanged(member.tenantId, prescription)]);
   try {
   await audit(
     member.tenantId,
@@ -2511,12 +2568,6 @@ export async function reviewRegistration(
   await audit(r.tenantId, userId, `registration.${status}`, r.firmName);
   return { ...r, status };
 }
-export class InvoiceEditConflict extends Error {}
-async function salesInvoiceRevision(header: Record<string, unknown>, lines: Array<Record<string, unknown>>) {
-  const stable = (row: Record<string, unknown>) => Object.fromEntries(Object.entries(row).sort(([a],[b]) => a.localeCompare(b)));
-  return sha256(JSON.stringify([stable(header), [...lines].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(stable)]));
-}
-
 export async function getSalesInvoice(userId: string, id: string) {
   const member = await getMembership(userId);
   if (!member) throw new Error("WORKSPACE_REQUIRED");
@@ -2553,15 +2604,14 @@ export async function getSalesInvoice(userId: string, id: string) {
       )
       .orderBy(invoiceLines.createdAt),
     profile = await getAgencyProfile(userId);
-  const editProducts = lines.length ? await db.select().from(products).where(and(
-    eq(products.tenantId, member.tenantId), inArray(products.id,[...new Set(lines.map(line=>line.productId))]))) : [];
-  return { header, customer, tenant, lines, profile, editProducts, revision: await salesInvoiceRevision(header, lines) };
+  return { header, customer, tenant, lines, profile };
 }
 
 export async function updateProductMaster(
   userId: string,
   id: string,
   input: {
+    original: unknown;
     name: string;
     composition?: string;
     defaultPack?: string;
@@ -2577,7 +2627,7 @@ export async function updateProductMaster(
   },
 ) {
   const m = await getMembership(userId);
-  if (!m) throw new Error("WORKSPACE_REQUIRED");
+  if (!m) throw new ProductMasterUpdateError("Active agency membership required.", 403, "PRODUCT_FORBIDDEN");
   const db = getDb(),
     [row] = await db
       .select()
@@ -2586,9 +2636,19 @@ export async function updateProductMaster(
         and(eq(productMasters.id, id), eq(productMasters.tenantId, m.tenantId)),
       )
       .limit(1);
-  if (!row) throw new Error("Product master not found");
+  if (!row) throw new ProductMasterUpdateError("Product master not found", 404, "PRODUCT_NOT_FOUND");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new ProductMasterUpdateError("Invalid product details.");
+  for (const field of ["name", "composition", "defaultPack", "hsn", "manufacturer", "marketedBy", "category", "cautionNotes"] as const) {
+    if (input[field] !== undefined && typeof input[field] !== "string") throw new ProductMasterUpdateError(`Invalid ${field}.`);
+  }
+  for (const field of ["isScheduleH1", "isPrescriptionRequired", "isHighCaution"] as const) {
+    if (input[field] !== undefined && typeof input[field] !== "boolean") throw new ProductMasterUpdateError(`Invalid ${field}.`);
+  }
+  if (input.defaultGstRate !== undefined && (typeof input.defaultGstRate !== "number" || !Number.isFinite(input.defaultGstRate) || input.defaultGstRate < 0 || input.defaultGstRate > 100))
+    throw new ProductMasterUpdateError("GST rate must be between 0 and 100");
+  const original = readOriginalProductMaster(input.original);
   if (!input.name?.trim() || !input.manufacturer?.trim())
-    throw new Error("Product name and manufacturer are required");
+    throw new ProductMasterUpdateError("Product name and manufacturer are required");
   const flagged = Boolean(
       input.isScheduleH1 ||
         input.isPrescriptionRequired ||
@@ -2596,7 +2656,7 @@ export async function updateProductMaster(
     ),
     cautionNotes = input.cautionNotes?.trim() || "";
   if (flagged && (!cautionNotes || cautionNotes.length > 280))
-    throw new Error(
+    throw new ProductMasterUpdateError(
       "Flagged medicines require a concise caution note of no more than 280 characters",
     );
   const values = {
@@ -2615,35 +2675,15 @@ export async function updateProductMaster(
     isHighCaution: Boolean(input.isHighCaution),
     cautionNotes,
   };
-  await db.batch([
-    db
-      .update(productMasters)
-      .set(values)
-      .where(
-        and(eq(productMasters.id, id), eq(productMasters.tenantId, m.tenantId)),
-      ),
-    db
-      .update(products)
-      .set({
-        name: values.name,
-        hsn: values.hsn,
-        manufacturer: values.manufacturer,
-      })
-      .where(
-        and(
-          eq(products.productMasterId, id),
-          eq(products.tenantId, m.tenantId),
-        ),
-      ),
-  ]);
-  await audit(
-    m.tenantId,
-    userId,
-    "product_master.updated",
-    `${row.name} → ${values.name}`,
-  );
-  await backup(m.tenantId);
-  return { ...row, ...values };
+  const updated = await syncProductMaster(db, m, id, original, values);
+  try {
+    await backup(m.tenantId);
+  } catch {
+    // The transaction already committed. Do not tell clients to retry the edit.
+    console.error("Product master committed; secondary backup failed", { tenantId: m.tenantId, productId: id });
+    return { ...updated, backupWarning: "Product saved, but the backup could not be refreshed. Retry the backup from Settings." };
+  }
+  return updated;
 }
 
 export async function deleteProductMaster(userId: string, id: string) {
@@ -2770,11 +2810,11 @@ export async function updateBatchStock(
 export async function updateSalesInvoice(
   userId: string,
   id: string,
-  input: SaleInput,
+  raw: unknown,
 ) {
   const m = await getMembership(userId);
   if (!m) throw new Error("WORKSPACE_REQUIRED");
-  if (!input.items?.length) throw new Error("Add at least one product row");
+  const input = normalizeSaleInput(raw);
   const db = getDb(),
     [current] = await db
       .select()
@@ -2793,58 +2833,40 @@ export async function updateSalesInvoice(
     )
     .limit(1);
   if (!customer) throw new Error("Customer not found");
-  const masterRows = await db
-    .select()
-    .from(productMasters)
-    .where(eq(productMasters.tenantId, m.tenantId));
-  const old = await db
-      .select()
-      .from(invoiceLines)
-      .where(
-        and(
-          eq(invoiceLines.invoiceId, id),
-          eq(invoiceLines.tenantId, m.tenantId),
-        ),
-      ),
-    plist = await db
-      .select()
-      .from(products)
-      .where(eq(products.tenantId, m.tenantId)),
-    pmap = new Map(plist.map((p) => [p.id, p])),
-    restored = new Map(plist.map((p) => [p.id, p.stock]));
-  const complianceRequired = enforcePrescriptionCompliance(
-    input,
-    input.items
-      .map((item) => pmap.get(item.productId))
-      .filter((p): p is (typeof plist)[number] => Boolean(p)),
-    masterRows,
-  );
-  if (input.expectedRevision && input.expectedRevision !== await salesInvoiceRevision(current, old))
-    throw new InvoiceEditConflict("This invoice changed after you opened it. Your draft is preserved. Reload the latest invoice before applying changes.");
-  const originalIssued = new Map<string, number>();
-  for (const line of old) originalIssued.set(line.productId,
-    (originalIssued.get(line.productId) || 0) + Number(line.quantity) + Number(line.freeQuantity || 0));
+  const old: Array<typeof invoiceLines.$inferSelect> = await db.select().from(invoiceLines).where(and(
+    eq(invoiceLines.invoiceId, id),
+    eq(invoiceLines.tenantId, m.tenantId),
+  ));
+  const selectedIds = [...new Set(input.items.map(item => item.productId))];
+  const affectedIds = [...new Set([...selectedIds, ...old.map(line => line.productId)])];
+  const plist: Array<typeof products.$inferSelect> = await db.select().from(products).where(and(
+    eq(products.tenantId, m.tenantId),
+    sql`${products.id} IN (SELECT value FROM json_each(${JSON.stringify(affectedIds)}))`,
+  ));
+  const pmap = new Map(plist.map(p => [p.id, p]));
+  const restored = new Map(plist.map(p => [p.id, p.stock]));
+  const prescription = await getBillingBatches(env.DB, m.tenantId, selectedIds);
+  if (prescription.length !== selectedIds.length) throw new Error("Selected batch no longer exists");
+  const complianceRequired = enforcePrescriptionCompliance(input, prescription);
   for (const x of old)
     restored.set(
       x.productId,
       (restored.get(x.productId) || 0) + x.quantity + x.freeQuantity,
     );
-  for (const x of input.items) {
-    if (!Number.isSafeInteger(Number(x.quantity)) || Number(x.quantity) <= 0 || !Number.isSafeInteger(Number(x.freeQuantity || 0)) || Number(x.freeQuantity || 0) < 0)
-      throw new Error("Enter positive whole billed units and nonnegative whole free units");
-  }
   const requested = new Map<string, number>();
   for (const x of input.items)
     requested.set(
       x.productId,
       (requested.get(x.productId) || 0) +
-        Number(x.quantity || 0) +
-        Number(x.freeQuantity || 0),
+        x.quantity +
+        x.freeQuantity,
     );
+  const today = billingToday();
   for (const [pid, qty] of requested) {
     const p = pmap.get(pid),
       available = restored.get(pid) || 0;
     if (!p) throw new Error("Selected batch no longer exists");
+    if (qty > available - p.stock) assertSellableExpiry(p, today);
     if (qty > available)
       throw new Error(
         `${p.name} batch ${p.batch}: cannot bill ${qty}; only ${available} available after reversing the original invoice`,
@@ -2858,12 +2880,12 @@ export async function updateSalesInvoice(
     lines = [];
   for (const x of input.items) {
     const p = pmap.get(x.productId)!,
-      qty = Number(x.quantity),
-      free = Number(x.freeQuantity || 0),
-      gross = money2(qty * Number(x.unitRate)),
-      disc = money2((gross * Number(x.discountPercent || 0)) / 100),
+      qty = x.quantity,
+      free = x.freeQuantity,
+      gross = money2(qty * x.unitRate),
+      disc = money2((gross * x.discountPercent) / 100),
       taxable = money2(gross - disc),
-      gst = money2((taxable * Number(x.gstRate || 0)) / 100);
+      gst = money2((taxable * x.gstRate) / 100);
     taxableSum += taxable;
     discountSum += disc;
     gstSum += gst;
@@ -2884,10 +2906,10 @@ export async function updateSalesInvoice(
       availableStock: restored.get(p.id) || 0,
       quantity: qty,
       freeQuantity: free,
-      unitRate: Number(x.unitRate),
-      discountPercent: Number(x.discountPercent || 0),
+      unitRate: x.unitRate,
+      discountPercent: x.discountPercent,
       discountAmount: disc,
-      gstRate: Number(x.gstRate || 0),
+      gstRate: x.gstRate,
       taxableAmount: taxable,
       gstAmount: gst,
       lineTotal: money2(taxable + gst),
@@ -2897,12 +2919,7 @@ export async function updateSalesInvoice(
   const freight = money2(Number(input.freightAmount) || 0),
     insurance = money2(Number(input.insuranceAmount) || 0),
     before = money2(taxableSum + freight + insurance),
-    cashInput = Math.max(0, Number(input.cashDiscount) || 0),
-    cashDiscount = money2(
-      input.cashDiscountType === "percent"
-        ? (before * cashInput) / 100
-        : cashInput,
-    ),
+    cashDiscount = saleCashDiscount(input, before),
     chargeTax = money2(
       (freight * Number(input.freightGstRate || 0)) / 100 +
         (insurance * Number(input.insuranceGstRate || 0)) / 100,
@@ -2936,18 +2953,16 @@ export async function updateSalesInvoice(
         ),
       ...lines.map((x) => db.insert(invoiceLines).values(x)),
     ];
-  for (const pid of new Set([...originalIssued.keys(), ...requested.keys()])) {
-    const p = pmap.get(pid);
-    if (!p) throw new Error("The original batch is unavailable. Refresh the invoice before editing.");
-    const delta = (originalIssued.get(pid) || 0) - (requested.get(pid) || 0);
-    // No-op/header/rate edits issue nothing. Quantity increases deduct only the
-    // extra units; decreases and removed batches release only the difference.
-    if (delta !== 0) statements.push(db.update(products).set({
-      stock: stockDelta(products.stock, delta),
-      physicalStock: sql`MAX(0, ${products.physicalStock} + ${delta * (p.packMultiplier || 1)})`,
-    }).where(and(eq(products.id,pid),eq(products.tenantId,m.tenantId))));
+  for (const p of plist) {
+    const next = (restored.get(p.id) ?? p.stock) - (requested.get(p.id) || 0);
+    if (next !== p.stock)
+      statements.push(
+        db
+          .update(products)
+          .set({ stock: stockDelta(products.stock, next - p.stock), physicalStock: sql`MAX(0, ${products.physicalStock} + ${(next - p.stock) * (p.packMultiplier || 1)})` })
+          .where(and(eq(products.id, p.id), eq(products.tenantId, m.tenantId))),
+      );
   }
-
   if (current.customerId === customer.id && oldDue !== newDue)
     statements.push(
       db
@@ -2991,11 +3006,11 @@ export async function updateSalesInvoice(
         lrNo: input.lrNo || null,
         prescriptionDoctorName: complianceRequired
           ? input.prescriptionDoctorName?.trim() || null
-          : billingMode() === "wholesale" ? current.prescriptionDoctorName : null,
+          : null,
         prescriptionDoctorRegistration: complianceRequired
           ? input.prescriptionDoctorRegistration?.trim().toUpperCase() || null
-          : billingMode() === "wholesale" ? current.prescriptionDoctorRegistration : null,
-        complianceAcknowledged: complianceRequired || (billingMode() === "wholesale" && current.complianceAcknowledged),
+          : null,
+        complianceAcknowledged: complianceRequired,
         freightAmount: freight,
         freightGstRate: Number(input.freightGstRate) || 0,
         insuranceAmount: insurance,
@@ -3012,7 +3027,7 @@ export async function updateSalesInvoice(
       })
       .where(and(eq(invoices.id, id), eq(invoices.tenantId, m.tenantId))),
   );
-  await commitStockBatch(db, m, statements, [snapshotUnchanged(invoices, and(eq(invoices.id, id), eq(invoices.tenantId, m.tenantId))!, [current]), snapshotUnchanged(invoiceLines, and(eq(invoiceLines.invoiceId, id), eq(invoiceLines.tenantId, m.tenantId))!, old)]);
+  await commitStockBatch(db, m, statements, [billingBatchMetadataUnchanged(m.tenantId, plist), billingPrescriptionUnchanged(m.tenantId, prescription), snapshotUnchanged(invoices, and(eq(invoices.id, id), eq(invoices.tenantId, m.tenantId))!, [current]), snapshotUnchanged(invoiceLines, and(eq(invoiceLines.invoiceId, id), eq(invoiceLines.tenantId, m.tenantId))!, old)]);
   try {
   await audit(
     m.tenantId,
